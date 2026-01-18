@@ -8,19 +8,98 @@ use ratatui::{
 
 use crate::app::AppState;
 
-/// Footer widget showing available keybindings
+/// Button definitions for footer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FooterButton {
+    Approve,
+    Reject,
+    ApproveAll,
+    ToggleSelect,
+    Focus,
+    Help,
+    Quit,
+}
+
+/// Footer widget showing clickable buttons
 pub struct FooterWidget;
 
 impl FooterWidget {
+    /// Button layout: returns (label, start_col, end_col, button_type)
+    pub fn get_button_layout(state: &AppState) -> Vec<(&'static str, u16, u16, FooterButton)> {
+        let mut buttons = Vec::new();
+        let mut col: u16 = 1;
+
+        if state.is_input_focused() {
+            // No buttons in input mode
+            return buttons;
+        }
+
+        // Line 1 buttons
+        let btn_approve = " ✓ Yes ";
+        buttons.push((btn_approve, col, col + btn_approve.len() as u16, FooterButton::Approve));
+        col += btn_approve.len() as u16 + 1;
+
+        let btn_reject = " ✗ No ";
+        buttons.push((btn_reject, col, col + btn_reject.len() as u16, FooterButton::Reject));
+        col += btn_reject.len() as u16 + 1;
+
+        let btn_all = " ⚡All ";
+        buttons.push((btn_all, col, col + btn_all.len() as u16, FooterButton::ApproveAll));
+        col += btn_all.len() as u16 + 1;
+
+        let btn_select = " ☐ Sel ";
+        buttons.push((btn_select, col, col + btn_select.len() as u16, FooterButton::ToggleSelect));
+        col += btn_select.len() as u16 + 1;
+
+        let btn_focus = " ◎ Focus ";
+        buttons.push((btn_focus, col, col + btn_focus.len() as u16, FooterButton::Focus));
+        col += btn_focus.len() as u16 + 1;
+
+        let btn_help = " ? ";
+        buttons.push((btn_help, col, col + btn_help.len() as u16, FooterButton::Help));
+        col += btn_help.len() as u16 + 1;
+
+        let btn_quit = " Q ";
+        buttons.push((btn_quit, col, col + btn_quit.len() as u16, FooterButton::Quit));
+
+        buttons
+    }
+
+    /// Check if a click at (x, y) relative to footer area hits a button
+    pub fn hit_test(x: u16, y: u16, area: Rect, state: &AppState) -> Option<FooterButton> {
+        // Check if within footer bounds (accounting for border)
+        if x < area.x + 1 || x >= area.x + area.width - 1 {
+            return None;
+        }
+        if y != area.y + 1 {
+            // Only first line has buttons
+            return None;
+        }
+
+        let rel_x = x - area.x;
+        let buttons = Self::get_button_layout(state);
+
+        for (_, start, end, button) in buttons {
+            if rel_x >= start && rel_x < end {
+                return Some(button);
+            }
+        }
+
+        None
+    }
+
     pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
-        let key_style = Style::default().fg(Color::Yellow);
-        let text_style = Style::default().fg(Color::White);
         let sep_style = Style::default().fg(Color::DarkGray);
         let input_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
+        let btn_style = Style::default().fg(Color::Black).bg(Color::Gray);
+        let btn_approve = Style::default().fg(Color::Black).bg(Color::Green);
+        let btn_reject = Style::default().fg(Color::Black).bg(Color::Red);
+        let btn_all = Style::default().fg(Color::Black).bg(Color::Yellow);
+        let btn_focus = Style::default().fg(Color::Black).bg(Color::Cyan);
+        let key_style = Style::default().fg(Color::Yellow);
+        let text_style = Style::default().fg(Color::White);
 
-        // Different display based on focus
         let lines: Vec<Line> = if state.is_input_focused() {
-            // Input focused - show input-specific hints
             vec![
                 Line::from(vec![
                     Span::styled(" INPUT ", input_style),
@@ -40,49 +119,38 @@ impl FooterWidget {
                 ]),
             ]
         } else {
-            // Normal mode - 2 lines
+            // Clickable buttons
             let mut line1 = vec![
-                Span::styled(" [Y]", key_style),
-                Span::styled(" Approve ", text_style),
-                Span::styled("[N]", key_style),
-                Span::styled(" Reject ", text_style),
-                Span::styled("[A]", key_style),
-                Span::styled(" All ", text_style),
-                Span::styled("│", sep_style),
-                Span::styled(" [1-9]", key_style),
-                Span::styled(" Choice ", text_style),
-                Span::styled("│", sep_style),
-                Span::styled(" [Space]", key_style),
-                Span::styled(" Select ", text_style),
+                Span::styled(" ✓ Yes ", btn_approve),
+                Span::raw(" "),
+                Span::styled(" ✗ No ", btn_reject),
+                Span::raw(" "),
+                Span::styled(" ⚡All ", btn_all),
+                Span::raw(" "),
+                Span::styled(" ☐ Sel ", btn_style),
+                Span::raw(" "),
+                Span::styled(" ◎ Focus ", btn_focus),
+                Span::raw(" "),
+                Span::styled(" ? ", btn_style),
+                Span::raw(" "),
+                Span::styled(" Q ", btn_style),
             ];
 
-            // Show selection count on line 1
             if !state.selected_agents.is_empty() {
                 line1.push(Span::styled(
-                    format!("({})", state.selected_agents.len()),
+                    format!(" ({})", state.selected_agents.len()),
                     Style::default().fg(Color::Cyan),
                 ));
             }
 
             let mut line2 = vec![
-                Span::styled(" [→]", key_style),
-                Span::styled(" Input ", text_style),
-                Span::styled("[F]", key_style),
-                Span::styled(" Focus pane ", text_style),
-                Span::styled("[S]", key_style),
-                Span::styled(" Subagents ", text_style),
-                Span::styled("│", sep_style),
-                Span::styled(" [?]", key_style),
-                Span::styled(" Help ", text_style),
-                Span::styled("[Q]", key_style),
-                Span::styled(" Quit ", text_style),
+                Span::styled(" Mouse: click buttons above │ scroll to navigate │ click agent to select ", text_style),
             ];
 
-            // Add error message on line 2
             if let Some(error) = &state.last_error {
                 line2.push(Span::styled("│", sep_style));
                 line2.push(Span::styled(
-                    format!(" ✗ {} ", truncate_error(error, 30)),
+                    format!(" ✗ {} ", truncate_error(error, 25)),
                     Style::default().fg(Color::Red),
                 ));
             }
@@ -96,7 +164,6 @@ impl FooterWidget {
             .border_style(Style::default().fg(Color::Gray));
 
         let paragraph = Paragraph::new(lines).block(block);
-
         frame.render_widget(paragraph, area);
     }
 }

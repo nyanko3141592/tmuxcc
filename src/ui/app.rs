@@ -157,6 +157,7 @@ async fn run_loop(
                         let size = terminal.size()?;
                         let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
                         let main_chunks = Layout::main_layout(area);
+                        let footer_area = main_chunks[2];
                         let (sidebar, _, _, input_area) = Layout::content_layout_with_input(
                             main_chunks[1], state.sidebar_width, 3
                         );
@@ -166,11 +167,78 @@ async fn run_loop(
                                 let x = mouse.column;
                                 let y = mouse.row;
 
-                                // Check if click is in sidebar
-                                if x >= sidebar.x && x < sidebar.x + sidebar.width
+                                // Check footer button clicks first
+                                if let Some(button) = FooterWidget::hit_test(x, y, footer_area, state) {
+                                    use super::components::FooterButton;
+                                    match button {
+                                        FooterButton::Approve => {
+                                            let indices = state.get_operation_indices();
+                                            for idx in indices {
+                                                if let Some(agent) = state.agents.get_agent(idx) {
+                                                    if agent.status.needs_attention() {
+                                                        let target = agent.target.clone();
+                                                        let _ = tmux_client.send_keys(&target, "y");
+                                                        let _ = tmux_client.send_keys(&target, "Enter");
+                                                    }
+                                                }
+                                            }
+                                            state.clear_selection();
+                                        }
+                                        FooterButton::Reject => {
+                                            let indices = state.get_operation_indices();
+                                            for idx in indices {
+                                                if let Some(agent) = state.agents.get_agent(idx) {
+                                                    if agent.status.needs_attention() {
+                                                        let target = agent.target.clone();
+                                                        let _ = tmux_client.send_keys(&target, "n");
+                                                        let _ = tmux_client.send_keys(&target, "Enter");
+                                                    }
+                                                }
+                                            }
+                                            state.clear_selection();
+                                        }
+                                        FooterButton::ApproveAll => {
+                                            for agent in &state.agents.root_agents {
+                                                if agent.status.needs_attention() {
+                                                    let _ = tmux_client.send_keys(&agent.target, "y");
+                                                    let _ = tmux_client.send_keys(&agent.target, "Enter");
+                                                }
+                                            }
+                                        }
+                                        FooterButton::ToggleSelect => {
+                                            state.toggle_selection();
+                                        }
+                                        FooterButton::Focus => {
+                                            if let Some(agent) = state.selected_agent() {
+                                                let target = agent.target.clone();
+                                                let _ = tmux_client.focus_pane(&target);
+                                            }
+                                        }
+                                        FooterButton::Help => {
+                                            state.toggle_help();
+                                        }
+                                        FooterButton::Quit => {
+                                            state.should_quit = true;
+                                        }
+                                    }
+                                }
+                                // Check if click is in sidebar - try to select agent
+                                else if x >= sidebar.x && x < sidebar.x + sidebar.width
                                     && y >= sidebar.y && y < sidebar.y + sidebar.height
                                 {
                                     state.focus_sidebar();
+                                    // Calculate which agent was clicked based on row
+                                    // Each agent takes ~4 lines in the tree view (varies)
+                                    // Simple heuristic: use relative row position
+                                    let rel_y = (y - sidebar.y).saturating_sub(1) as usize;
+                                    let agents_count = state.agents.root_agents.len();
+                                    if agents_count > 0 {
+                                        // Estimate ~4 lines per agent (header + info + status)
+                                        let estimated_idx = rel_y / 4;
+                                        if estimated_idx < agents_count {
+                                            state.select_agent(estimated_idx);
+                                        }
+                                    }
                                 }
                                 // Check if click is in input area
                                 else if x >= input_area.x && x < input_area.x + input_area.width
