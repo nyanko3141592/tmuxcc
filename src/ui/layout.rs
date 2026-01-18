@@ -11,7 +11,7 @@ impl Layout {
             .constraints([
                 Constraint::Length(3), // Header
                 Constraint::Min(10),   // Content area
-                Constraint::Length(4), // Footer (2 lines + border)
+                Constraint::Length(1), // Footer (1 line, no border)
             ])
             .split(area)
             .to_vec()
