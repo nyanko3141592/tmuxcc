@@ -1,251 +1,326 @@
 # TmuxCC
 
-AI Agent Dashboard for tmux - 複数のAIエージェントを一元管理するターミナルダッシュボード
+**AI Agent Dashboard for tmux** - Monitor and manage multiple AI coding agents from a single terminal interface.
 
-## 概要
+TmuxCC is a TUI (Terminal User Interface) application that provides centralized monitoring and control of AI coding assistants running in tmux panes. It supports Claude Code, OpenCode, Codex CLI, and Gemini CLI.
 
-TmuxCCは、tmux上で実行されているAIエージェント（Claude Code, OpenCode, Codex CLI, Gemini CLI）を監視・操作するためのTUIアプリケーションです。
+---
 
-### 主な機能
+## Screenshot
 
-- **マルチエージェント監視**: 複数のAIエージェントの状態をリアルタイムで表示
-- **階層表示**: Session/Window/Agent の階層構造でツリー表示
-- **承認操作**: ダッシュボードから直接承認（Y）/却下（N）を送信
-- **入力サポート**: 数字キーによる選択肢の回答、フリーテキスト入力
-- **複数選択**: 複数エージェントへの一括操作
-- **Subagent表示**: Claude Codeのサブエージェント状態も表示
-
-## スクリーンショット
-
+<!-- TODO: Add actual screenshot -->
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  TmuxCC - AI Agent Dashboard                   Agents: 3 Active: 1│
-├──────────────────────────────────────────────────────────────────┤
-│ main (Session)                    │ Preview: main:0.0             │
-│ ├─ 0: code                        │                               │
-│ │  ├─ ~/project1                  │ Claude Code wants to edit:    │
-│ │  │  ● Claude Code  ⚠ [Edit]    │ src/main.rs                   │
-│ │  │     └─ ▶ Explore (Running)   │                               │
-│ │  └─ ~/project2                  │ - fn main() {                 │
-│ │     ○ OpenCode   ◐ Processing   │ + fn main() -> Result<()> {   │
-│ └─ 1: shell                       │                               │
-│    └─ ~/tools                     │ Do you want to allow this     │
-│       ○ Codex CLI  ● Idle         │ edit? [y/n]                   │
-├──────────────────────────────────────────────────────────────────┤
-│ [Y] Approve [N] Reject [A] All │ [1-9] Choice [I] Input │ [Space] │
-└──────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  TmuxCC - AI Agent Dashboard                   Agents: 3 Active: 1|
++------------------------------------------------------------------+
+| main (Session)                    | Preview: main:0.0             |
+| +-- 0: code                       |                               |
+| |  +-- ~/project1                 | Claude Code wants to edit:    |
+| |  |  * Claude Code  ! [Edit]     | src/main.rs                   |
+| |  |     +-- > Explore (Running)  |                               |
+| |  +-- ~/project2                 | - fn main() {                 |
+| |     o OpenCode   @ Processing   | + fn main() -> Result<()> {   |
+| +-- 1: shell                      |                               |
+|    +-- ~/tools                    | Do you want to allow this     |
+|       o Codex CLI  * Idle         | edit? [y/n]                   |
++------------------------------------------------------------------+
+| [Y] Approve [N] Reject [A] All | [1-9] Choice | [Space] Select    |
++------------------------------------------------------------------+
 ```
 
-## インストール
+*Replace with actual screenshot*
+
+---
+
+## Features
+
+- **Multi-Agent Monitoring**: Track multiple AI agents across all tmux sessions and windows
+- **Real-time Status**: See agent states at a glance (Idle, Processing, Awaiting Approval, Error)
+- **Approval Management**: Approve or reject pending requests with single keystrokes
+- **Batch Operations**: Select multiple agents and approve/reject all at once
+- **Hierarchical View**: Tree display organized by Session/Window/Pane
+- **Subagent Tracking**: Monitor spawned subagents (Task tool) with their status
+- **Context Awareness**: View remaining context percentage when available
+- **Pane Preview**: See live content from selected agent's tmux pane
+- **Focus Integration**: Jump directly to any agent's pane in tmux
+- **Customizable**: Configure polling interval, capture lines, and custom agent patterns
+
+### Supported AI Agents
+
+| Agent | Detection Method | Approval Keys |
+|-------|------------------|---------------|
+| **Claude Code** | `claude` command, version numbers, window title with icon | `y` / `n` |
+| **OpenCode** | `opencode` command | `y` / `n` |
+| **Codex CLI** | `codex` command | `y` / `n` |
+| **Gemini CLI** | `gemini` command | `y` / `n` |
+
+---
+
+## Installation
+
+### From crates.io (coming soon)
 
 ```bash
-# リポジトリをクローン
+cargo install tmuxcc
+```
+
+### From Source
+
+```bash
 git clone https://github.com/yourusername/tmuxcc.git
 cd tmuxcc
-
-# ビルド
 cargo build --release
-
-# インストール（オプション）
 cargo install --path .
 ```
 
-## 使い方
+### Requirements
+
+- **tmux** (must be running with at least one session)
+- **Rust** 1.70+ (for building from source)
+
+---
+
+## Usage
+
+### Quick Start
+
+1. Start tmux and run AI agents in different panes
+2. Launch TmuxCC from any terminal:
 
 ```bash
-# tmuxセッション内で実行
+tmuxcc
+```
+
+### Command Line Options
+
+```
+tmuxcc [OPTIONS]
+
+Options:
+  -p, --poll-interval <MS>      Polling interval in milliseconds [default: 500]
+  -l, --capture-lines <LINES>   Lines to capture from each pane [default: 100]
+  -f, --config <FILE>           Path to config file
+  -d, --debug                   Enable debug logging to tmuxcc.log
+      --show-config-path        Show config file path and exit
+      --init-config             Create default config file and exit
+  -h, --help                    Print help
+  -V, --version                 Print version
+```
+
+### Examples
+
+```bash
+# Run with default settings
 tmuxcc
 
-# ヘルプを表示
-tmuxcc --help
-```
-
-### コマンドラインオプション
-
-| オプション | 短縮 | 説明 | デフォルト |
-|------------|------|------|------------|
-| `--poll-interval <MS>` | `-p` | ポーリング間隔（ミリ秒） | 500 |
-| `--capture-lines <LINES>` | `-c` | ペインからキャプチャする行数 | 100 |
-| `--config <FILE>` | `-f` | 設定ファイルのパス | - |
-| `--debug` | `-d` | デバッグログを `tmuxcc.log` に出力 | - |
-| `--show-config-path` | - | 設定ファイルのパスを表示 | - |
-| `--init-config` | - | デフォルト設定ファイルを生成 | - |
-
-### 使用例
-
-```bash
-# ポーリング間隔を1秒に設定
+# Set polling interval to 1 second
 tmuxcc -p 1000
 
-# キャプチャ行数を増やす（より多くのコンテキストを取得）
-tmuxcc -c 200
+# Capture more lines for better context
+tmuxcc -l 200
 
-# カスタム設定ファイルを使用
+# Use custom config file
 tmuxcc -f ~/.config/tmuxcc/custom.toml
 
-# デバッグモードで実行
+# Enable debug logging
 tmuxcc --debug
 
-# 設定ファイルを初期化
+# Initialize default config file
 tmuxcc --init-config
 ```
 
-## キーバインド
+---
 
-### ナビゲーション
+## Key Bindings
 
-| キー | 説明 |
-|------|------|
-| `j` / `↓` | 次のエージェント |
-| `k` / `↑` | 前のエージェント |
-| `Tab` | 次のエージェント（循環） |
+### Navigation
 
-### 選択
+| Key | Action |
+|-----|--------|
+| `j` / `Down` | Next agent |
+| `k` / `Up` | Previous agent |
+| `Tab` | Cycle through agents |
 
-| キー | 説明 |
-|------|------|
-| `Space` | 現在のエージェントの選択をトグル |
-| `Ctrl+a` | 全エージェントを選択 |
-| `Esc` | 選択をクリア / サブエージェントログを閉じる |
+### Selection
 
-### アクション
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle selection of current agent |
+| `Ctrl+a` | Select all agents |
+| `Esc` | Clear selection / Close popup |
 
-| キー | 説明 |
-|------|------|
-| `y` / `Y` | 承認（選択されたエージェントまたは現在のエージェント） |
-| `n` / `N` | 却下（選択されたエージェントまたは現在のエージェント） |
-| `a` / `A` | 全ての承認待ちを承認 |
-| `1`-`9` | 数字の選択肢を送信（AskUserQuestion用） |
-| `i` / `I` | 入力モードに入る（フリーテキスト入力） |
-| `Enter` | 選択したペインにtmuxでフォーカス |
+### Actions
 
-### 入力モード
+| Key | Action |
+|-----|--------|
+| `y` / `Y` | Approve pending request(s) |
+| `n` / `N` | Reject pending request(s) |
+| `a` / `A` | Approve ALL pending requests |
+| `1`-`9` | Send numbered choice to agent |
+| `f` / `F` | Focus on selected pane in tmux |
+| `Left` / `Right` | Switch focus (Sidebar / Input) |
 
-| キー | 説明 |
-|------|------|
-| 任意の文字 | 入力バッファに追加 |
-| `Backspace` | 最後の文字を削除 |
-| `Enter` | 入力を送信 |
-| `Esc` | 入力モードをキャンセル |
+### View
 
-### 表示
+| Key | Action |
+|-----|--------|
+| `s` / `S` | Toggle subagent log |
+| `r` | Refresh agent list |
+| `h` / `?` | Show help |
+| `q` | Quit |
 
-| キー | 説明 |
-|------|------|
-| `s` / `S` | サブエージェントログの表示をトグル |
-| `r` | リフレッシュ / エラーをクリア |
-| `h` / `?` | ヘルプを表示 |
-| `q` | 終了 |
+---
 
-## サポートしているエージェント
+## Configuration
 
-| エージェント | 検出方法 |
-|--------------|----------|
-| Claude Code | コマンド名 `claude` またはウィンドウタイトル（✳アイコン）|
-| OpenCode | コマンド名 `opencode` |
-| Codex CLI | コマンド名 `codex` |
-| Gemini CLI | コマンド名 `gemini` |
+TmuxCC uses a TOML configuration file.
 
-## ステータス表示
-
-| アイコン | 状態 |
-|----------|------|
-| ⚠ `[Edit]` | ファイル編集の承認待ち |
-| ⚠ `[Bash]` | シェルコマンドの承認待ち |
-| ⚠ `[?]` | ユーザー質問への回答待ち |
-| ◐ | 処理中 |
-| ● | アイドル状態 |
-| ○ | 不明 |
-
-## 設定ファイル
-
-設定ファイルは `~/.config/tmuxcc/config.toml` に保存されます。
+### Initialize Config
 
 ```bash
-# 設定ファイルを初期化
+# Create default config file
 tmuxcc --init-config
 
-# 設定ファイルのパスを確認
+# Show config file location
 tmuxcc --show-config-path
 ```
 
-### 設定例
+### Config File Location
+
+| OS | Path |
+|----|------|
+| Linux | `~/.config/tmuxcc/config.toml` |
+| macOS | `~/Library/Application Support/tmuxcc/config.toml` |
+| Windows | `%APPDATA%\tmuxcc\config.toml` |
+
+### Configuration Options
 
 ```toml
-# ポーリング間隔（ミリ秒）
+# Polling interval in milliseconds
 poll_interval_ms = 500
 
-# キャプチャする行数
+# Number of lines to capture from each pane
 capture_lines = 100
 
-# カスタムエージェントパターン（オプション）
+# Custom agent patterns (optional)
+# Add patterns to detect additional AI agents
 [[agent_patterns]]
 pattern = "my-custom-agent"
-agent_type = "custom"
+agent_type = "CustomAgent"
 ```
 
-## 技術スタック
+---
 
-- **言語**: Rust (Edition 2021)
-- **TUI**: [Ratatui](https://github.com/ratatui/ratatui) 0.29
-- **ターミナル**: [Crossterm](https://github.com/crossterm-rs/crossterm) 0.28
-- **非同期**: [Tokio](https://tokio.rs/)
-- **CLI**: [Clap](https://github.com/clap-rs/clap) 4
+## Status Indicators
 
-## 開発
+| Icon | Status |
+|------|--------|
+| `!` `[Edit]` | File edit approval pending |
+| `!` `[Shell]` | Shell command approval pending |
+| `!` `[Question]` | User question awaiting response |
+| `@` | Processing |
+| `*` | Idle |
+| `?` | Unknown |
 
-```bash
-# ビルド
-cargo build
+---
 
-# テスト実行
-cargo test
+## How It Works
 
-# Lint
-cargo clippy
+1. **Discovery**: TmuxCC scans all tmux sessions, windows, and panes
+2. **Detection**: Identifies AI agents by process name, window title, and command line
+3. **Parsing**: Agent-specific parsers analyze pane content for status and approvals
+4. **Monitoring**: Continuously polls panes at configurable intervals
+5. **Actions**: Sends keystrokes to panes for approvals/rejections
 
-# フォーマット
-cargo fmt
-```
+---
 
-## プロジェクト構造
+## Project Structure
 
 ```
 tmuxcc/
 ├── src/
-│   ├── main.rs          # エントリーポイント
-│   ├── lib.rs           # ライブラリルート
-│   ├── agents/          # エージェント型定義
-│   │   ├── types.rs     # AgentType, AgentStatus, MonitoredAgent
-│   │   └── subagent.rs  # Subagent, SubagentType, SubagentStatus
-│   ├── app/             # アプリケーションロジック
-│   │   ├── state.rs     # AppState, AgentTree, InputMode
-│   │   ├── actions.rs   # Action enum
-│   │   └── config.rs    # 設定
-│   ├── monitor/         # モニタリング
-│   │   └── task.rs      # 非同期監視タスク
-│   ├── parsers/         # エージェント出力パーサー
-│   │   ├── mod.rs       # AgentParser trait
+│   ├── main.rs           # Entry point
+│   ├── lib.rs            # Library root
+│   ├── agents/           # Agent type definitions
+│   │   ├── types.rs      # AgentType, AgentStatus, MonitoredAgent
+│   │   └── subagent.rs   # Subagent, SubagentType, SubagentStatus
+│   ├── app/              # Application logic
+│   │   ├── state.rs      # AppState, AgentTree, InputMode
+│   │   ├── actions.rs    # Action enum
+│   │   └── config.rs     # Configuration
+│   ├── monitor/          # Monitoring
+│   │   └── task.rs       # Async monitoring task
+│   ├── parsers/          # Agent output parsers
+│   │   ├── mod.rs        # AgentParser trait
 │   │   ├── claude_code.rs
 │   │   ├── opencode.rs
 │   │   ├── codex_cli.rs
 │   │   └── gemini_cli.rs
-│   ├── tmux/            # tmux連携
-│   │   ├── client.rs    # TmuxClient
-│   │   └── pane.rs      # PaneInfo, プロセス検出
-│   └── ui/              # UI実装
-│       ├── app.rs       # メインループ
-│       ├── layout.rs    # レイアウト定義
-│       └── components/  # UIコンポーネント
-│           ├── header.rs
-│           ├── footer.rs
-│           ├── agent_tree.rs
-│           ├── pane_preview.rs
-│           ├── subagent_log.rs
-│           └── help.rs
+│   ├── tmux/             # tmux integration
+│   │   ├── client.rs     # TmuxClient
+│   │   └── pane.rs       # PaneInfo, process detection
+│   └── ui/               # UI implementation
+│       ├── app.rs        # Main loop
+│       ├── layout.rs     # Layout definitions
+│       └── components/   # UI components
 └── Cargo.toml
 ```
 
-## ライセンス
+---
 
-MIT License
+## Tech Stack
+
+- **Language**: Rust (Edition 2021)
+- **TUI Framework**: [Ratatui](https://ratatui.rs/) 0.29
+- **Terminal**: [Crossterm](https://github.com/crossterm-rs/crossterm) 0.28
+- **Async Runtime**: [Tokio](https://tokio.rs/)
+- **CLI Parser**: [Clap](https://clap.rs/) 4
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Contributing
+
+Contributions are welcome! Here's how you can help:
+
+### Getting Started
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Run tests (`cargo test`)
+5. Run clippy (`cargo clippy`)
+6. Format code (`cargo fmt`)
+7. Commit your changes (`git commit -m 'Add amazing feature'`)
+8. Push to the branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
+
+### Areas for Contribution
+
+- **New Agent Support**: Add parsers for other AI coding assistants
+- **UI Improvements**: Enhance the terminal interface
+- **Performance**: Optimize polling and parsing
+- **Documentation**: Improve docs and examples
+- **Bug Fixes**: Report and fix issues
+- **Tests**: Improve test coverage
+
+### Code Style
+
+- Follow Rust conventions and idioms
+- Run `cargo fmt` before committing
+- Ensure `cargo clippy` passes without warnings
+- Add tests for new functionality
+
+---
+
+## Related Projects
+
+- [Claude Code](https://claude.ai/code) - Anthropic's AI coding assistant
+- [OpenCode](https://github.com/opencode-ai/opencode) - Open-source AI coding assistant
+- [Codex CLI](https://github.com/openai/codex-cli) - OpenAI's Codex CLI
+- [Gemini CLI](https://github.com/google/gemini-cli) - Google's Gemini CLI

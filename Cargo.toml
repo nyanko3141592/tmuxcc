@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "AI Agent Dashboard for tmux - Monitor Claude Code, OpenCode, Codex CLI, and Gemini CLI"
 authors = ["TmuxCC Contributors"]
+license = "MIT"
+repository = "https://github.com/tmuxcc/tmuxcc"
+homepage = "https://github.com/tmuxcc/tmuxcc"
+readme = "README.md"
+keywords = ["tmux", "ai", "dashboard", "terminal", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 ratatui = "0.29"

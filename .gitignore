@@ -1,1 +1,35 @@
+# Build artifacts
 /target
+
+# Environment variables and secrets
+.env
+.env.*
+*.env
+
+# Credentials and keys
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.toml
+secrets.yaml
+secrets.yml
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cargo lock for libraries (keep for binaries)
+# Cargo.lock
+
+# Logs
+*.log
+logs/
+
+# Debug files
+*.dSYM/
