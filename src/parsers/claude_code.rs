@@ -399,21 +399,38 @@ impl AgentParser for ClaudeCodeParser {
             }
 
             // Claude Code specific indicators
-            // ✽ indicates active processing with status
+
+            // "Churned for Xs" indicates idle state - check first
+            if trimmed.contains("Churned for") || trimmed.contains("Churned:") {
+                return AgentStatus::Idle;
+            }
+
+            // ✽ indicates active processing with status (but not if it's a Churned message)
             if trimmed.starts_with('✽') {
-                // Extract activity from the line
                 let activity = trimmed.trim_start_matches('✽').trim();
+                // Skip if this is an idle indicator
+                if activity.starts_with("Churned") {
+                    return AgentStatus::Idle;
+                }
                 let short_activity = activity.split('(').next().unwrap_or(activity).trim();
                 return AgentStatus::Processing {
                     activity: short_activity.chars().take(30).collect(),
                 };
             }
 
-            // ⏺ indicates active tool call
-            if trimmed.starts_with('⏺') && !trimmed.contains("completed") && !trimmed.contains("finished") {
-                return AgentStatus::Processing {
-                    activity: "Tool running...".to_string(),
-                };
+            // ⏺ indicates tool call - but check if it's a completion message
+            if trimmed.starts_with('⏺') {
+                let msg = trimmed.trim_start_matches('⏺').trim();
+                // Skip completed actions (English and Japanese patterns)
+                let is_completed = msg.contains("completed") || msg.contains("finished")
+                    || msg.contains("ました") || msg.contains("した。")
+                    || msg.contains("saved") || msg.contains("created")
+                    || msg.contains("written") || msg.contains("generated");
+                if !is_completed {
+                    return AgentStatus::Processing {
+                        activity: "Tool running...".to_string(),
+                    };
+                }
             }
 
             // · (middle dot) with activity text like "Channelling…"
