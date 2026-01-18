@@ -53,9 +53,9 @@ impl TmuxClient {
             .lines()
             .filter_map(|line| {
                 // First field is session_attached (0 or 1)
-                let mut parts = line.splitn(2, '\t');
-                let attached = parts.next()?;
-                let rest = parts.next()?;
+                let (attached, rest) = line.split_once('\t')?;
+                
+                
 
                 // Only include panes from attached sessions
                 if attached == "1" {

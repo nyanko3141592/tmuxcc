@@ -14,15 +14,26 @@ use crate::app::AppState;
 /// Widget for displaying agents in a tree organized by session/window
 pub struct AgentTreeWidget;
 
+/// Type alias for window key (window number, window name)
+type WindowKey<'a> = (u32, &'a str);
+
+/// Type alias for agents in a window (index, agent reference)
+type WindowAgents<'a> = Vec<(usize, &'a MonitoredAgent)>;
+
+/// Type alias for windows map
+type WindowsMap<'a> = BTreeMap<WindowKey<'a>, WindowAgents<'a>>;
+
+/// Type alias for sessions map
+type SessionsMap<'a> = BTreeMap<&'a str, WindowsMap<'a>>;
+
 /// Represents the hierarchical structure: Session -> Window -> Agents
 struct SessionWindowTree<'a> {
-    sessions: BTreeMap<&'a str, BTreeMap<(u32, &'a str), Vec<(usize, &'a MonitoredAgent)>>>,
+    sessions: SessionsMap<'a>,
 }
 
 impl<'a> SessionWindowTree<'a> {
     fn new(agents: &'a [MonitoredAgent]) -> Self {
-        let mut sessions: BTreeMap<&str, BTreeMap<(u32, &str), Vec<(usize, &MonitoredAgent)>>> =
-            BTreeMap::new();
+        let mut sessions: SessionsMap<'a> = BTreeMap::new();
 
         for (idx, agent) in agents.iter().enumerate() {
             sessions
@@ -112,9 +123,7 @@ impl AgentTreeWidget {
 
                     let tree_prefix = if is_last_window {
                         if is_last_agent && agent.subagents.is_empty() { "    └─" } else { "    ├─" }
-                    } else {
-                        if is_last_agent && agent.subagents.is_empty() { " │  └─" } else { " │  ├─" }
-                    };
+                    } else if is_last_agent && agent.subagents.is_empty() { " │  └─" } else { " │  ├─" };
 
                     let select_indicator = if is_selected && is_cursor {
                         "┃☑"  // カーソル+選択: 縦線とチェック

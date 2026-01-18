@@ -14,7 +14,7 @@ pub enum SubagentType {
 
 impl SubagentType {
     /// Parse subagent type from string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "explore" => SubagentType::Explore,
             "plan" => SubagentType::Plan,
@@ -131,11 +131,11 @@ mod tests {
 
     #[test]
     fn test_subagent_type_from_str() {
-        assert_eq!(SubagentType::from_str("explore"), SubagentType::Explore);
-        assert_eq!(SubagentType::from_str("Explore"), SubagentType::Explore);
-        assert_eq!(SubagentType::from_str("plan"), SubagentType::Plan);
+        assert_eq!(SubagentType::parse("explore"), SubagentType::Explore);
+        assert_eq!(SubagentType::parse("Explore"), SubagentType::Explore);
+        assert_eq!(SubagentType::parse("plan"), SubagentType::Plan);
         assert_eq!(
-            SubagentType::from_str("custom-agent"),
+            SubagentType::parse("custom-agent"),
             SubagentType::Custom("custom-agent".to_string())
         );
     }

@@ -57,8 +57,8 @@ impl ClaudeCodeSummary {
             if trimmed.starts_with('⏺') {
                 let tool_text = trimmed.trim_start_matches('⏺').trim();
                 // Only keep recent non-completed ones, or limit to last few
-                if !tool_text.contains("completed") && !tool_text.contains("finished") {
-                    if recent_tools.len() < 3 {
+                if !tool_text.contains("completed") && !tool_text.contains("finished")
+                    && recent_tools.len() < 3 {
                         // Truncate long tool lines (character-based for UTF-8 safety)
                         let char_count = tool_text.chars().count();
                         let short = if char_count > 60 {
@@ -69,7 +69,6 @@ impl ClaudeCodeSummary {
                         };
                         recent_tools.push(short);
                     }
-                }
             }
         }
 

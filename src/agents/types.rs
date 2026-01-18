@@ -208,6 +208,7 @@ pub struct MonitoredAgent {
 
 impl MonitoredAgent {
     /// Creates a new MonitoredAgent
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         target: String,

@@ -191,7 +191,7 @@ impl ClaudeCodeParser {
         // Both Yes and No must be present and close together (within 4 lines)
         if has_yes && has_no {
             if let (Some(y_idx), Some(n_idx)) = (yes_line_idx, no_line_idx) {
-                let distance = if y_idx > n_idx { y_idx - n_idx } else { n_idx - y_idx };
+                let distance = y_idx.abs_diff(n_idx);
                 return distance <= 4;
             }
         }
@@ -394,7 +394,7 @@ impl AgentParser for ClaudeCodeParser {
 
         // Find task starts
         for cap in self.task_start_pattern.captures_iter(content) {
-            let subagent_type = SubagentType::from_str(&cap[1]);
+            let subagent_type = SubagentType::parse(&cap[1]);
             let description = cap[2].to_string();
             id_counter += 1;
 
@@ -419,7 +419,7 @@ impl AgentParser for ClaudeCodeParser {
                 id_counter += 1;
                 subagents.push(Subagent::new(
                     format!("subagent-{}", id_counter),
-                    SubagentType::from_str(type_name),
+                    SubagentType::parse(type_name),
                     desc.to_string(),
                 ));
             }
