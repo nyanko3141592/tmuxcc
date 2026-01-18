@@ -258,6 +258,13 @@ impl AppState {
         }
     }
 
+    /// Selects an agent by index
+    pub fn select_agent(&mut self, index: usize) {
+        if index < self.agents.root_agents.len() {
+            self.selected_index = index;
+        }
+    }
+
     /// Toggles selection of the current agent
     pub fn toggle_selection(&mut self) {
         if self.selected_agents.contains(&self.selected_index) {

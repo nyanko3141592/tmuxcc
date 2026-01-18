@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers, MouseEventKind, MouseButton, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -26,7 +26,7 @@ pub async fn run_app(config: Config) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -64,7 +64,8 @@ pub async fn run_app(config: Config) -> Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        LeaveAlternateScreen
+        LeaveAlternateScreen,
+        DisableMouseCapture
     )?;
     terminal.show_cursor()?;
 
@@ -146,10 +147,51 @@ async fn run_loop(
                 state.selected_agents.retain(|&idx| idx < max_idx);
             }
 
-            // Handle keyboard events
+            // Handle keyboard and mouse events
             _ = tokio::time::sleep(timeout) => {
                 if event::poll(Duration::from_millis(0))? {
-                    if let Event::Key(key) = event::read()? {
+                    let event = event::read()?;
+
+                    // Handle mouse events
+                    if let Event::Mouse(mouse) = event {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let main_chunks = Layout::main_layout(area);
+                        let (sidebar, _, _, input_area) = Layout::content_layout_with_input(
+                            main_chunks[1], state.sidebar_width, 3
+                        );
+
+                        match mouse.kind {
+                            MouseEventKind::Down(MouseButton::Left) => {
+                                let x = mouse.column;
+                                let y = mouse.row;
+
+                                // Check if click is in sidebar
+                                if x >= sidebar.x && x < sidebar.x + sidebar.width
+                                    && y >= sidebar.y && y < sidebar.y + sidebar.height
+                                {
+                                    state.focus_sidebar();
+                                }
+                                // Check if click is in input area
+                                else if x >= input_area.x && x < input_area.x + input_area.width
+                                    && y >= input_area.y && y < input_area.y + input_area.height
+                                {
+                                    state.focus_input();
+                                }
+                            }
+                            MouseEventKind::ScrollUp => {
+                                state.select_prev();
+                            }
+                            MouseEventKind::ScrollDown => {
+                                state.select_next();
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // Handle keyboard events
+                    if let Event::Key(key) = event {
                         let action = map_key_to_action(key.code, key.modifiers, state);
 
                         match action {
@@ -304,6 +346,15 @@ async fn run_loop(
                             }
                             Action::SidebarNarrower => {
                                 state.sidebar_width = state.sidebar_width.saturating_sub(5).max(15);
+                            }
+                            Action::SelectAgent(idx) => {
+                                state.select_agent(idx);
+                            }
+                            Action::ScrollUp => {
+                                state.select_prev();
+                            }
+                            Action::ScrollDown => {
+                                state.select_next();
                             }
                             Action::None => {}
                         }

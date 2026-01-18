@@ -57,6 +57,12 @@ pub enum Action {
     SidebarWider,
     /// Decrease sidebar width
     SidebarNarrower,
+    /// Select agent by index (mouse click)
+    SelectAgent(usize),
+    /// Scroll up in sidebar
+    ScrollUp,
+    /// Scroll down in sidebar
+    ScrollDown,
     /// No action (used for unbound keys)
     None,
 }
@@ -93,6 +99,9 @@ impl Action {
             Action::SendNumber(_) => "Send choice number",
             Action::SidebarWider => "Widen sidebar",
             Action::SidebarNarrower => "Narrow sidebar",
+            Action::SelectAgent(_) => "Select agent",
+            Action::ScrollUp => "Scroll up",
+            Action::ScrollDown => "Scroll down",
             Action::None => "",
         }
     }
