@@ -76,7 +76,11 @@ impl HeaderWidget {
             Color::Green
         };
         spans.push(Span::styled(
-            format!(" MEM {} ({:.0}%) ", state.system_stats.memory_display(), mem_percent),
+            format!(
+                " MEM {} ({:.0}%) ",
+                state.system_stats.memory_display(),
+                mem_percent
+            ),
             Style::default().fg(mem_color),
         ));
 

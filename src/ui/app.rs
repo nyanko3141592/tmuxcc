@@ -64,7 +64,14 @@ pub async fn run_app(config: Config) -> Result<()> {
     let mut system_stats = SystemStatsCollector::new();
 
     // Main loop
-    let result = run_loop(&mut terminal, &mut state, &mut rx, &tmux_client, &mut system_stats).await;
+    let result = run_loop(
+        &mut terminal,
+        &mut state,
+        &mut rx,
+        &tmux_client,
+        &mut system_stats,
+    )
+    .await;
 
     // Cleanup
     monitor_handle.abort();
