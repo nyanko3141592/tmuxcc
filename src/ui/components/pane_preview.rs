@@ -96,6 +96,24 @@ impl PanePreviewWidget {
 
             let mut styled_lines: Vec<Line> = Vec::new();
 
+            // Path and Git branch
+            let path_display = agent.abbreviated_path();
+            if let Some(ref branch) = agent.git_branch {
+                styled_lines.push(Line::from(vec![
+                    Span::styled("📁 ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(path_display, Style::default().fg(Color::Magenta)),
+                    Span::styled(" (", Style::default().fg(Color::DarkGray)),
+                    Span::styled(branch.clone(), Style::default().fg(Color::Cyan)),
+                    Span::styled(")", Style::default().fg(Color::DarkGray)),
+                ]));
+            } else {
+                styled_lines.push(Line::from(vec![
+                    Span::styled("📁 ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(path_display, Style::default().fg(Color::Magenta)),
+                ]));
+            }
+            styled_lines.push(Line::from(""));
+
             // Current activity
             if let Some(activity) = summary.current_activity {
                 styled_lines.push(Line::from(vec![

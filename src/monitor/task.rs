@@ -7,6 +7,7 @@ use tracing::{debug, error, warn};
 
 use crate::agents::{AgentStatus, MonitoredAgent};
 use crate::app::AgentTree;
+use crate::git::get_git_branch;
 use crate::parsers::ParserRegistry;
 use crate::tmux::{refresh_process_cache, TmuxClient};
 
@@ -152,6 +153,9 @@ impl MonitorTask {
                 // Parse context remaining
                 let context_remaining = parser.parse_context_remaining(&content);
 
+                // Get git branch info
+                let git_branch = get_git_branch(&pane.path);
+
                 // Create monitored agent
                 let mut agent = MonitoredAgent::new(
                     format!("{}-{}", target, pane.pid),
@@ -168,6 +172,7 @@ impl MonitorTask {
                 agent.subagents = subagents;
                 agent.last_content = content;
                 agent.context_remaining = context_remaining;
+                agent.git_branch = git_branch;
                 agent.touch(); // Update last_updated
 
                 tree.root_agents.push(agent);

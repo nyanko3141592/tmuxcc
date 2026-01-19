@@ -207,6 +207,8 @@ pub struct MonitoredAgent {
     pub last_updated: Instant,
     /// Context remaining percentage (0-100), if detectable
     pub context_remaining: Option<u8>,
+    /// Git branch name (if in a git repo)
+    pub git_branch: Option<String>,
 }
 
 impl MonitoredAgent {
@@ -240,6 +242,7 @@ impl MonitoredAgent {
             started_at: now,
             last_updated: now,
             context_remaining: None,
+            git_branch: None,
         }
     }
 
