@@ -14,7 +14,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc;
 
-use crate::app::{Action, AppState, Config};
+use crate::app::{Action, AppState, Config, TreeCursor};
 use crate::monitor::{MonitorTask, SystemStatsCollector};
 use crate::parsers::ParserRegistry;
 use crate::tmux::TmuxClient;
@@ -152,7 +152,7 @@ async fn run_loop(
 
             // Help overlay
             if state.show_help {
-                HelpWidget::render(frame, size);
+                HelpWidget::render(frame, size, state.help_scroll);
             }
         })?;
 
@@ -163,10 +163,9 @@ async fn run_loop(
             // Handle monitor updates
             Some(update) = rx.recv() => {
                 state.agents = update.agents;
-                // Ensure selected index is valid
-                if state.selected_index >= state.agents.root_agents.len() {
-                    state.selected_index = state.agents.root_agents.len().saturating_sub(1);
-                }
+                state.all_sessions = update.all_sessions;
+                // Clamp cursor to valid range
+                state.clamp_cursor();
                 // Clean up invalid selections
                 let max_idx = state.agents.root_agents.len();
                 state.selected_agents.retain(|&idx| idx < max_idx);
@@ -235,8 +234,7 @@ async fn run_loop(
                                             state.toggle_selection();
                                         }
                                         FooterButton::Focus => {
-                                            if let Some(agent) = state.selected_agent() {
-                                                let target = agent.target.clone();
+                                            if let Some(target) = state.selected_pane_target() {
                                                 let _ = tmux_client.focus_pane(&target);
                                             }
                                         }
@@ -254,8 +252,6 @@ async fn run_loop(
                                 {
                                     state.focus_sidebar();
                                     // Calculate which agent was clicked based on row
-                                    // Each agent takes ~4 lines in the tree view (varies)
-                                    // Simple heuristic: use relative row position
                                     let rel_y = (y - sidebar.y).saturating_sub(1) as usize;
                                     let agents_count = state.agents.root_agents.len();
                                     if agents_count > 0 {
@@ -287,6 +283,30 @@ async fn run_loop(
                     // Handle keyboard events
                     if let Event::Key(key) = event {
                         let action = map_key_to_action(key.code, key.modifiers, state);
+
+                        // Clear pending_kill on any action that isn't KillPane
+                        if !matches!(action, Action::KillPanePending | Action::KillPane) {
+                            state.pending_kill = None;
+                        }
+
+                        // Clear rename_mode on non-rename/non-input actions
+                        if state.rename_mode.is_some()
+                            && !matches!(
+                                action,
+                                Action::RenameStart
+                                    | Action::RenameExecute(_)
+                                    | Action::RenameCancel
+                                    | Action::InputChar(_)
+                                    | Action::InputBackspace
+                                    | Action::CursorLeft
+                                    | Action::CursorRight
+                                    | Action::CursorHome
+                                    | Action::CursorEnd
+                            )
+                        {
+                            state.rename_mode = None;
+                            state.take_input();
+                        }
 
                         match action {
                             Action::Quit => {
@@ -360,12 +380,20 @@ async fn run_loop(
                                 }
                             }
                             Action::FocusPane => {
-                                if let Some(agent) = state.selected_agent() {
-                                    let target = agent.target.clone();
+                                if let Some(target) = state.selected_pane_target() {
                                     if let Err(e) = tmux_client.focus_pane(&target) {
                                         state.set_error(format!("Failed to focus: {}", e));
                                     }
                                 }
+                            }
+                            Action::ToggleCollapse => {
+                                state.toggle_collapse();
+                            }
+                            Action::CollapseAll => {
+                                state.collapse_all();
+                            }
+                            Action::ExpandAll => {
+                                state.expand_all();
                             }
                             Action::ToggleSubagentLog => {
                                 state.toggle_subagent_log();
@@ -387,6 +415,12 @@ async fn run_loop(
                             }
                             Action::FocusSidebar => {
                                 state.focus_sidebar();
+                            }
+                            Action::FocusPreview => {
+                                state.focus_preview();
+                            }
+                            Action::CycleFocus => {
+                                state.toggle_focus();
                             }
                             Action::ClearInput => {
                                 state.take_input();
@@ -448,10 +482,95 @@ async fn run_loop(
                                 state.select_agent(idx);
                             }
                             Action::ScrollUp => {
-                                state.select_prev();
+                                if state.show_help {
+                                    state.help_scroll = state.help_scroll.saturating_sub(1);
+                                } else {
+                                    state.select_prev();
+                                }
                             }
                             Action::ScrollDown => {
-                                state.select_next();
+                                if state.show_help {
+                                    state.help_scroll = state.help_scroll.saturating_add(1);
+                                } else {
+                                    state.select_next();
+                                }
+                            }
+                            Action::KillPanePending => {
+                                // First 'd' press - set pending
+                                if let Some(target) = state.selected_pane_target() {
+                                    state.pending_kill = Some((target, std::time::Instant::now()));
+                                }
+                            }
+                            Action::KillPane => {
+                                // Second 'd' press confirmed - execute kill
+                                if let Some((target, _)) = state.pending_kill.take() {
+                                    if let Err(e) = tmux_client.kill_pane(&target) {
+                                        state.set_error(format!("Failed to kill pane: {}", e));
+                                    }
+                                }
+                            }
+                            Action::SpawnStart => {
+                                if let Some(session) = state.selected_session().map(|s| s.to_string()) {
+                                    state.spawn_mode = Some(session);
+                                }
+                            }
+                            Action::SpawnAgent(cmd) => {
+                                if let Some(session) = state.spawn_mode.take() {
+                                    // Look up cwd from any existing pane in the session
+                                    let session_path = state
+                                        .agents
+                                        .root_agents
+                                        .iter()
+                                        .find(|a| a.session == session)
+                                        .map(|a| a.path.clone())
+                                        .or_else(|| {
+                                            state.agents.non_agent_panes
+                                                .iter()
+                                                .find(|p| p.session == session)
+                                                .map(|p| p.path.clone())
+                                        });
+                                    let cwd = session_path.as_deref();
+
+                                    // Build window name: "{agent_type}-{basename_of_cwd}"
+                                    let agent_short = cmd.split_whitespace().next().unwrap_or("agent");
+                                    let dir_basename = cwd
+                                        .and_then(|p| p.rsplit('/').find(|s| !s.is_empty()))
+                                        .unwrap_or("agent");
+                                    let window_name = format!("{}-{}", agent_short, dir_basename);
+
+                                    if let Err(e) = tmux_client.new_window(&session, &window_name, &cmd, cwd) {
+                                        state.set_error(format!("Failed to spawn: {}", e));
+                                    }
+                                }
+                            }
+                            Action::SpawnCancel => {
+                                state.spawn_mode = None;
+                            }
+                            Action::RenameStart => {
+                                if let Some(target) = state.selected_pane_target() {
+                                    // Pre-fill input buffer with current window name
+                                    let window_name = state
+                                        .selected_pane_window_name()
+                                        .unwrap_or_default();
+                                    state.input_buffer = window_name.clone();
+                                    state.cursor_position = window_name.len();
+                                    state.rename_mode = Some(target);
+                                }
+                            }
+                            Action::RenameExecute(name) => {
+                                if let Some(target) = state.rename_mode.take() {
+                                    let name = name.trim().to_string();
+                                    if !name.is_empty() {
+                                        if let Err(e) = tmux_client.rename_window(&target, &name) {
+                                            state.set_error(format!("Failed to rename: {}", e));
+                                        }
+                                    }
+                                    state.take_input();
+                                }
+                            }
+                            Action::RenameCancel => {
+                                state.rename_mode = None;
+                                state.take_input();
                             }
                             Action::None => {}
                         }
@@ -469,27 +588,78 @@ async fn run_loop(
 }
 
 fn map_key_to_action(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Action {
-    // If help is shown, any key closes it
+    // If help is shown, handle scroll or close
     if state.show_help {
-        return Action::HideHelp;
+        return match code {
+            KeyCode::Char('j') | KeyCode::Down => Action::ScrollDown,
+            KeyCode::Char('k') | KeyCode::Up => Action::ScrollUp,
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => Action::HideHelp,
+            _ => Action::None,  // ignore other keys while help is open
+        };
     }
 
-    // If input panel is focused, handle input-specific keys
-    if state.is_input_focused() {
+    // If rename mode is active, handle rename keys
+    if state.rename_mode.is_some() {
         return match code {
-            // Esc moves focus back to sidebar
-            KeyCode::Esc => Action::FocusSidebar,
-            // Shift+Enter or Alt+Enter inserts newline
-            KeyCode::Enter if modifiers.contains(KeyModifiers::SHIFT) => Action::InputNewline,
-            KeyCode::Enter if modifiers.contains(KeyModifiers::ALT) => Action::InputNewline,
-            KeyCode::Enter => Action::SendInput,
+            KeyCode::Enter => {
+                let name = state.get_input().to_string();
+                Action::RenameExecute(name)
+            }
+            KeyCode::Esc => Action::RenameCancel,
             KeyCode::Backspace => Action::InputBackspace,
-            // Cursor movement
             KeyCode::Left => Action::CursorLeft,
             KeyCode::Right => Action::CursorRight,
             KeyCode::Home => Action::CursorHome,
             KeyCode::End => Action::CursorEnd,
             KeyCode::Char(c) => Action::InputChar(c),
+            _ => Action::None,
+        };
+    }
+
+    // If spawn mode is active, handle spawn keys
+    if state.spawn_mode.is_some() {
+        return match code {
+            KeyCode::Char('c') => {
+                Action::SpawnAgent("claude --dangerously-skip-permissions".to_string())
+            }
+            KeyCode::Char('C') => Action::SpawnAgent("claude".to_string()),
+            KeyCode::Char('x') => Action::SpawnAgent("codex".to_string()),
+            KeyCode::Char('g') => Action::SpawnAgent("gemini".to_string()),
+            KeyCode::Char('o') => Action::SpawnAgent("opencode".to_string()),
+            KeyCode::Esc => Action::SpawnCancel,
+            _ => Action::None,
+        };
+    }
+
+    // If input panel is focused, handle input-specific keys
+    if state.is_input_focused() {
+        return match code {
+            KeyCode::Esc => Action::FocusSidebar,
+            KeyCode::Tab => Action::CycleFocus,
+            KeyCode::BackTab => Action::FocusPreview,
+            KeyCode::Enter if modifiers.contains(KeyModifiers::SHIFT) => Action::InputNewline,
+            KeyCode::Enter if modifiers.contains(KeyModifiers::ALT) => Action::InputNewline,
+            KeyCode::Enter => Action::SendInput,
+            KeyCode::Backspace => Action::InputBackspace,
+            KeyCode::Left => Action::CursorLeft,
+            KeyCode::Right => Action::CursorRight,
+            KeyCode::Home => Action::CursorHome,
+            KeyCode::End => Action::CursorEnd,
+            KeyCode::Char(c) => Action::InputChar(c),
+            _ => Action::None,
+        };
+    }
+
+    // If preview panel is focused, handle preview-specific keys
+    if state.is_preview_focused() {
+        return match code {
+            KeyCode::Esc => Action::FocusSidebar,
+            KeyCode::Tab => Action::CycleFocus,
+            KeyCode::BackTab => Action::FocusSidebar,
+            KeyCode::Char('j') | KeyCode::Down => Action::ScrollDown,
+            KeyCode::Char('k') | KeyCode::Up => Action::ScrollUp,
+            KeyCode::Char('q') => Action::Quit,
+            KeyCode::Char('?') | KeyCode::Char('h') => Action::ShowHelp,
             _ => Action::None,
         };
     }
@@ -501,19 +671,29 @@ fn map_key_to_action(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -
 
         KeyCode::Char('j') | KeyCode::Down => Action::NextAgent,
         KeyCode::Char('k') | KeyCode::Up => Action::PrevAgent,
-        KeyCode::Tab => Action::NextAgent,
+        KeyCode::Tab => Action::CycleFocus,
+        KeyCode::BackTab => Action::FocusInput,
 
         // Left/Right arrows for focus navigation
         KeyCode::Right => Action::FocusInput,
         KeyCode::Left => Action::None, // Already on sidebar
 
+        // Enter toggles collapse when on a session header
+        KeyCode::Enter => {
+            if matches!(state.cursor, TreeCursor::Session(_)) {
+                Action::ToggleCollapse
+            } else {
+                Action::None
+            }
+        }
+
         // Multi-selection
         KeyCode::Char(' ') => Action::ToggleSelection,
         KeyCode::Char('a') if modifiers.contains(KeyModifiers::CONTROL) => Action::SelectAll,
 
-        // Approval
+        // Approval - y/Y approve, N (shift only) reject
         KeyCode::Char('y') | KeyCode::Char('Y') => Action::Approve,
-        KeyCode::Char('n') | KeyCode::Char('N') => Action::Reject,
+        KeyCode::Char('N') => Action::Reject,
         KeyCode::Char('a') | KeyCode::Char('A') => Action::ApproveAll,
 
         // Number keys for quick choice selection (1-9)
@@ -525,9 +705,39 @@ fn map_key_to_action(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -
         // Focus pane with 'f'
         KeyCode::Char('f') | KeyCode::Char('F') => Action::FocusPane,
 
+        // Kill pane with 'dd' (double-tap)
+        KeyCode::Char('d') => {
+            if let Some((ref target, instant)) = state.pending_kill {
+                if instant.elapsed().as_millis() < 400 {
+                    // Check that we're still on the same target
+                    if let Some(current_target) = state.selected_pane_target() {
+                        if current_target == *target {
+                            return Action::KillPane;
+                        }
+                    }
+                }
+            }
+            Action::KillPanePending
+        }
+
+        // Spawn agent with 'n'
+        KeyCode::Char('n') => Action::SpawnStart,
+
+        // Collapse/expand all
+        KeyCode::Char('[') => Action::CollapseAll,
+        KeyCode::Char(']') => Action::ExpandAll,
+
         KeyCode::Char('s') | KeyCode::Char('S') => Action::ToggleSubagentLog,
         KeyCode::Char('t') | KeyCode::Char('T') => Action::ToggleSummaryDetail,
         KeyCode::Char('r') => Action::Refresh,
+        KeyCode::Char('R') => {
+            // Rename when on a pane
+            if state.selected_pane_target().is_some() {
+                Action::RenameStart
+            } else {
+                Action::None
+            }
+        }
 
         // Sidebar resize (only < and >)
         KeyCode::Char('<') => Action::SidebarNarrower,

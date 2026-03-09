@@ -3,14 +3,53 @@ use crate::monitor::SystemStats;
 use std::collections::HashSet;
 use std::time::Instant;
 
+/// A pane that is not running a recognized agent
+#[derive(Debug, Clone)]
+pub struct NonAgentPane {
+    pub target: String,
+    pub session: String,
+    pub window: u32,
+    pub window_name: String,
+    pub pane: u32,
+    pub command: String,
+    pub path: String,
+}
+
 /// Which panel is currently focused
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusedPanel {
     /// Agent list sidebar is focused
     #[default]
     Sidebar,
+    /// Preview/message chain area is focused
+    Preview,
     /// Input area is focused
     Input,
+}
+
+/// Semantic cursor that can point to either a session header, an agent, or a non-agent pane
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TreeCursor {
+    /// Cursor is on a session header
+    Session(String),
+    /// Cursor is on an agent (index into root_agents)
+    Agent(usize),
+    /// Cursor is on a non-agent pane (index into non_agent_panes)
+    NonAgentPane(usize),
+}
+
+impl Default for TreeCursor {
+    fn default() -> Self {
+        TreeCursor::Agent(0)
+    }
+}
+
+/// Represents a navigable item in the tree
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavItem {
+    Session(String),
+    Agent(usize),
+    NonAgentPane(usize),
 }
 
 /// Tree structure containing all monitored agents
@@ -18,6 +57,8 @@ pub enum FocusedPanel {
 pub struct AgentTree {
     /// Root agents (directly in tmux panes)
     pub root_agents: Vec<MonitoredAgent>,
+    /// Panes that don't match any agent parser
+    pub non_agent_panes: Vec<NonAgentPane>,
 }
 
 impl AgentTree {
@@ -25,6 +66,7 @@ impl AgentTree {
     pub fn new() -> Self {
         Self {
             root_agents: Vec::new(),
+            non_agent_panes: Vec::new(),
         }
     }
 
@@ -79,10 +121,14 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 pub struct AppState {
     /// Tree of monitored agents
     pub agents: AgentTree,
-    /// Currently selected agent index (cursor position)
-    pub selected_index: usize,
+    /// All tmux session names (including those without agents)
+    pub all_sessions: Vec<String>,
+    /// Semantic cursor (session header, agent, or non-agent pane)
+    pub cursor: TreeCursor,
     /// Multi-selected agent indices
     pub selected_agents: HashSet<usize>,
+    /// Collapsed session names
+    pub collapsed_sessions: HashSet<String>,
     /// Which panel is focused
     pub focused_panel: FocusedPanel,
     /// Input buffer (always available)
@@ -91,6 +137,8 @@ pub struct AppState {
     pub cursor_position: usize,
     /// Whether help is being shown
     pub show_help: bool,
+    /// Help scroll offset
+    pub help_scroll: u16,
     /// Whether subagent log is shown
     pub show_subagent_log: bool,
     /// Whether summary detail (TODOs and Tools) is shown
@@ -107,6 +155,12 @@ pub struct AppState {
     last_tick: Instant,
     /// System resource statistics
     pub system_stats: SystemStats,
+    /// Pending kill confirmation: (target, timestamp)
+    pub pending_kill: Option<(String, Instant)>,
+    /// Spawn mode: Some(session_name) when active
+    pub spawn_mode: Option<String>,
+    /// Rename mode: Some(target) when active
+    pub rename_mode: Option<String>,
 }
 
 impl AppState {
@@ -114,12 +168,15 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             agents: AgentTree::new(),
-            selected_index: 0,
+            all_sessions: Vec::new(),
+            cursor: TreeCursor::default(),
             selected_agents: HashSet::new(),
+            collapsed_sessions: HashSet::new(),
             focused_panel: FocusedPanel::Sidebar,
             input_buffer: String::new(),
             cursor_position: 0,
             show_help: false,
+            help_scroll: 0,
             show_subagent_log: false,
             show_summary_detail: true,
             should_quit: false,
@@ -128,6 +185,136 @@ impl AppState {
             tick: 0,
             last_tick: Instant::now(),
             system_stats: SystemStats::new(),
+            pending_kill: None,
+            spawn_mode: None,
+            rename_mode: None,
+        }
+    }
+
+    /// Build the flat navigation list: session headers + visible agents + non-agent panes in display order
+    pub fn build_nav_items(&self) -> Vec<NavItem> {
+        use std::collections::BTreeMap;
+
+        // Group agents by session
+        let mut agent_sessions: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (idx, agent) in self.agents.root_agents.iter().enumerate() {
+            agent_sessions
+                .entry(&agent.session)
+                .or_default()
+                .push(idx);
+        }
+
+        // Group non-agent panes by session
+        let mut nap_sessions: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (idx, nap) in self.agents.non_agent_panes.iter().enumerate() {
+            nap_sessions
+                .entry(&nap.session)
+                .or_default()
+                .push(idx);
+        }
+
+        // Collect all session names (from agents, non-agent panes, and all_sessions)
+        let mut all_session_names: BTreeMap<&str, ()> = BTreeMap::new();
+        for s in agent_sessions.keys() {
+            all_session_names.insert(s, ());
+        }
+        for s in nap_sessions.keys() {
+            all_session_names.insert(s, ());
+        }
+        for s in &self.all_sessions {
+            all_session_names.insert(s.as_str(), ());
+        }
+
+        let mut items = Vec::new();
+        for (session, _) in &all_session_names {
+            items.push(NavItem::Session(session.to_string()));
+            if !self.collapsed_sessions.contains(*session) {
+                if let Some(agent_indices) = agent_sessions.get(session) {
+                    for &idx in agent_indices {
+                        items.push(NavItem::Agent(idx));
+                    }
+                }
+                if let Some(nap_indices) = nap_sessions.get(session) {
+                    for &idx in nap_indices {
+                        items.push(NavItem::NonAgentPane(idx));
+                    }
+                }
+            }
+        }
+        items
+    }
+
+    /// Returns the agent index when cursor is on an agent
+    pub fn selected_agent_index(&self) -> Option<usize> {
+        match &self.cursor {
+            TreeCursor::Agent(idx) => Some(*idx),
+            _ => None,
+        }
+    }
+
+    /// Returns the non-agent pane index when cursor is on one
+    pub fn selected_non_agent_index(&self) -> Option<usize> {
+        match &self.cursor {
+            TreeCursor::NonAgentPane(idx) => Some(*idx),
+            _ => None,
+        }
+    }
+
+    /// Returns the currently selected non-agent pane
+    pub fn selected_non_agent_pane(&self) -> Option<&NonAgentPane> {
+        self.selected_non_agent_index()
+            .and_then(|idx| self.agents.non_agent_panes.get(idx))
+    }
+
+    /// Returns the currently selected agent (None when cursor is on a session or non-agent pane)
+    pub fn selected_agent(&self) -> Option<&MonitoredAgent> {
+        self.selected_agent_index()
+            .and_then(|idx| self.agents.get_agent(idx))
+    }
+
+    /// Returns the currently selected agent mutably
+    pub fn selected_agent_mut(&mut self) -> Option<&mut MonitoredAgent> {
+        self.selected_agent_index()
+            .and_then(|idx| self.agents.get_agent_mut(idx))
+    }
+
+    /// Returns the target of whatever pane the cursor is on (agent or non-agent)
+    pub fn selected_pane_target(&self) -> Option<String> {
+        match &self.cursor {
+            TreeCursor::Agent(idx) => self.agents.get_agent(*idx).map(|a| a.target.clone()),
+            TreeCursor::NonAgentPane(idx) => {
+                self.agents.non_agent_panes.get(*idx).map(|p| p.target.clone())
+            }
+            TreeCursor::Session(_) => None,
+        }
+    }
+
+    /// Returns the window name of whatever pane the cursor is on
+    pub fn selected_pane_window_name(&self) -> Option<String> {
+        match &self.cursor {
+            TreeCursor::Agent(idx) => {
+                self.agents.get_agent(*idx).map(|a| a.window_name.clone())
+            }
+            TreeCursor::NonAgentPane(idx) => {
+                self.agents.non_agent_panes.get(*idx).map(|p| p.window_name.clone())
+            }
+            TreeCursor::Session(_) => None,
+        }
+    }
+
+    /// Returns the session name the cursor is on or in
+    pub fn selected_session(&self) -> Option<&str> {
+        match &self.cursor {
+            TreeCursor::Session(s) => Some(s),
+            TreeCursor::Agent(idx) => self
+                .agents
+                .get_agent(*idx)
+                .map(|a| a.session.as_str()),
+            TreeCursor::NonAgentPane(idx) => self
+                .agents
+                .non_agent_panes
+                .get(*idx)
+                .map(|p| p.session.as_str()),
         }
     }
 
@@ -150,6 +337,11 @@ impl AppState {
         self.focused_panel == FocusedPanel::Input
     }
 
+    /// Check if preview panel is focused
+    pub fn is_preview_focused(&self) -> bool {
+        self.focused_panel == FocusedPanel::Preview
+    }
+
     /// Focus on the input panel
     pub fn focus_input(&mut self) {
         self.focused_panel = FocusedPanel::Input;
@@ -160,10 +352,16 @@ impl AppState {
         self.focused_panel = FocusedPanel::Sidebar;
     }
 
-    /// Toggle focus between panels
+    /// Focus on the preview
+    pub fn focus_preview(&mut self) {
+        self.focused_panel = FocusedPanel::Preview;
+    }
+
+    /// Cycle focus: Sidebar → Preview → Input → Sidebar
     pub fn toggle_focus(&mut self) {
         self.focused_panel = match self.focused_panel {
-            FocusedPanel::Sidebar => FocusedPanel::Input,
+            FocusedPanel::Sidebar => FocusedPanel::Preview,
+            FocusedPanel::Preview => FocusedPanel::Input,
             FocusedPanel::Input => FocusedPanel::Sidebar,
         };
     }
@@ -242,47 +440,79 @@ impl AppState {
         self.cursor_position = self.input_buffer.len();
     }
 
-    /// Returns the currently selected agent
-    pub fn selected_agent(&self) -> Option<&MonitoredAgent> {
-        self.agents.get_agent(self.selected_index)
-    }
-
-    /// Returns the currently selected agent mutably
-    pub fn selected_agent_mut(&mut self) -> Option<&mut MonitoredAgent> {
-        self.agents.get_agent_mut(self.selected_index)
-    }
-
-    /// Selects the next agent
+    /// Selects the next item in navigation order
     pub fn select_next(&mut self) {
-        if !self.agents.root_agents.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.agents.root_agents.len();
+        let nav_items = self.build_nav_items();
+        if nav_items.is_empty() {
+            return;
         }
+
+        // Find current position
+        let current_pos = self.find_nav_position(&nav_items);
+        let next_pos = match current_pos {
+            Some(pos) => (pos + 1) % nav_items.len(),
+            None => 0,
+        };
+
+        self.set_cursor_from_nav(&nav_items[next_pos]);
     }
 
-    /// Selects the previous agent
+    /// Selects the previous item in navigation order
     pub fn select_prev(&mut self) {
-        if !self.agents.root_agents.is_empty() {
-            if self.selected_index == 0 {
-                self.selected_index = self.agents.root_agents.len() - 1;
-            } else {
-                self.selected_index -= 1;
-            }
+        let nav_items = self.build_nav_items();
+        if nav_items.is_empty() {
+            return;
         }
+
+        let current_pos = self.find_nav_position(&nav_items);
+        let prev_pos = match current_pos {
+            Some(pos) => {
+                if pos == 0 {
+                    nav_items.len() - 1
+                } else {
+                    pos - 1
+                }
+            }
+            None => 0,
+        };
+
+        self.set_cursor_from_nav(&nav_items[prev_pos]);
+    }
+
+    /// Find the current cursor's position in the nav items list
+    fn find_nav_position(&self, nav_items: &[NavItem]) -> Option<usize> {
+        nav_items.iter().position(|item| match (&self.cursor, item) {
+            (TreeCursor::Session(s1), NavItem::Session(s2)) => s1 == s2,
+            (TreeCursor::Agent(i1), NavItem::Agent(i2)) => i1 == i2,
+            (TreeCursor::NonAgentPane(i1), NavItem::NonAgentPane(i2)) => i1 == i2,
+            _ => false,
+        })
+    }
+
+    /// Set cursor from a NavItem
+    fn set_cursor_from_nav(&mut self, item: &NavItem) {
+        self.cursor = match item {
+            NavItem::Session(s) => TreeCursor::Session(s.clone()),
+            NavItem::Agent(idx) => TreeCursor::Agent(*idx),
+            NavItem::NonAgentPane(idx) => TreeCursor::NonAgentPane(*idx),
+        };
     }
 
     /// Selects an agent by index
     pub fn select_agent(&mut self, index: usize) {
         if index < self.agents.root_agents.len() {
-            self.selected_index = index;
+            self.cursor = TreeCursor::Agent(index);
         }
     }
 
     /// Toggles selection of the current agent
     pub fn toggle_selection(&mut self) {
-        if self.selected_agents.contains(&self.selected_index) {
-            self.selected_agents.remove(&self.selected_index);
-        } else {
-            self.selected_agents.insert(self.selected_index);
+        if let Some(idx) = self.selected_agent_index() {
+            if self.selected_agents.contains(&idx) {
+                self.selected_agents.remove(&idx);
+            } else {
+                self.selected_agents.insert(idx);
+            }
         }
     }
 
@@ -301,7 +531,11 @@ impl AppState {
     /// Returns indices to operate on (selected agents, or current if none selected)
     pub fn get_operation_indices(&self) -> Vec<usize> {
         if self.selected_agents.is_empty() {
-            vec![self.selected_index]
+            if let Some(idx) = self.selected_agent_index() {
+                vec![idx]
+            } else {
+                vec![]
+            }
         } else {
             let mut indices: Vec<usize> = self.selected_agents.iter().copied().collect();
             indices.sort();
@@ -314,9 +548,35 @@ impl AppState {
         self.selected_agents.contains(&index)
     }
 
+    /// Toggle collapse of the current session
+    pub fn toggle_collapse(&mut self) {
+        if let Some(session) = self.selected_session().map(|s| s.to_string()) {
+            if self.collapsed_sessions.contains(&session) {
+                self.collapsed_sessions.remove(&session);
+            } else {
+                self.collapsed_sessions.insert(session);
+            }
+        }
+    }
+
+    /// Collapse all sessions
+    pub fn collapse_all(&mut self) {
+        for session in &self.all_sessions {
+            self.collapsed_sessions.insert(session.clone());
+        }
+    }
+
+    /// Expand all sessions
+    pub fn expand_all(&mut self) {
+        self.collapsed_sessions.clear();
+    }
+
     /// Toggles help display
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+        if self.show_help {
+            self.help_scroll = 0;
+        }
     }
 
     /// Toggles subagent log display
@@ -338,6 +598,49 @@ impl AppState {
     pub fn clear_error(&mut self) {
         self.last_error = None;
     }
+
+    /// Clamp cursor to valid range after agents update
+    pub fn clamp_cursor(&mut self) {
+        match &self.cursor {
+            TreeCursor::Agent(idx) => {
+                if *idx >= self.agents.root_agents.len() {
+                    if self.agents.root_agents.is_empty() {
+                        self.cursor = TreeCursor::Agent(0);
+                    } else {
+                        self.cursor =
+                            TreeCursor::Agent(self.agents.root_agents.len() - 1);
+                    }
+                }
+            }
+            TreeCursor::NonAgentPane(idx) => {
+                if *idx >= self.agents.non_agent_panes.len() {
+                    if self.agents.non_agent_panes.is_empty() {
+                        self.cursor = TreeCursor::Agent(0);
+                    } else {
+                        self.cursor =
+                            TreeCursor::NonAgentPane(self.agents.non_agent_panes.len() - 1);
+                    }
+                }
+            }
+            TreeCursor::Session(session) => {
+                // Check if session still exists in agents, non-agent panes, or all_sessions
+                let exists = self
+                    .agents
+                    .root_agents
+                    .iter()
+                    .any(|a| a.session == *session)
+                    || self
+                        .agents
+                        .non_agent_panes
+                        .iter()
+                        .any(|p| p.session == *session)
+                    || self.all_sessions.iter().any(|s| s == session);
+                if !exists {
+                    self.cursor = TreeCursor::Agent(0);
+                }
+            }
+        }
+    }
 }
 
 impl Default for AppState {
@@ -351,40 +654,97 @@ mod tests {
     use super::*;
     use crate::agents::AgentType;
 
+    fn make_agent(session: &str, target: &str, window: u32, pane: u32) -> MonitoredAgent {
+        MonitoredAgent::new(
+            format!("{}-1", target),
+            target.to_string(),
+            session.to_string(),
+            window,
+            "code".to_string(),
+            pane,
+            "/home/user/project".to_string(),
+            AgentType::ClaudeCode,
+            1000,
+        )
+    }
+
     #[test]
     fn test_app_state_navigation() {
         let mut state = AppState::new();
 
-        // Add some agents
-        state.agents.root_agents.push(MonitoredAgent::new(
-            "1".to_string(),
-            "main:0.0".to_string(),
-            "main".to_string(),
-            0,
-            "code".to_string(),
-            0,
-            "/home/user/project1".to_string(),
-            AgentType::ClaudeCode,
-            1000,
-        ));
-        state.agents.root_agents.push(MonitoredAgent::new(
-            "2".to_string(),
-            "main:0.1".to_string(),
-            "main".to_string(),
-            0,
-            "code".to_string(),
-            1,
-            "/home/user/project2".to_string(),
-            AgentType::OpenCode,
-            1001,
-        ));
+        // Add some agents in same session
+        state
+            .agents
+            .root_agents
+            .push(make_agent("main", "main:0.0", 0, 0));
+        state
+            .agents
+            .root_agents
+            .push(make_agent("main", "main:0.1", 0, 1));
 
-        assert_eq!(state.selected_index, 0);
+        // Cursor starts at Agent(0)
+        assert_eq!(state.cursor, TreeCursor::Agent(0));
+
+        // Next: Agent(0) -> Agent(1)
         state.select_next();
-        assert_eq!(state.selected_index, 1);
+        assert_eq!(state.selected_agent_index(), Some(1));
+
+        // Next wraps: Agent(1) -> Session("main")
         state.select_next();
-        assert_eq!(state.selected_index, 0); // Wraps around
+        assert_eq!(state.cursor, TreeCursor::Session("main".to_string()));
+
+        // Next: Session("main") -> Agent(0)
+        state.select_next();
+        assert_eq!(state.selected_agent_index(), Some(0));
+
+        // Prev wraps: Agent(0) -> Session("main")
         state.select_prev();
-        assert_eq!(state.selected_index, 1); // Wraps around
+        assert_eq!(state.cursor, TreeCursor::Session("main".to_string()));
+
+        // Prev: Session("main") -> Agent(1) (wrap to end)
+        state.select_prev();
+        assert_eq!(state.selected_agent_index(), Some(1));
+    }
+
+    #[test]
+    fn test_selected_session() {
+        let mut state = AppState::new();
+        state
+            .agents
+            .root_agents
+            .push(make_agent("dev", "dev:0.0", 0, 0));
+
+        state.cursor = TreeCursor::Session("dev".to_string());
+        assert_eq!(state.selected_session(), Some("dev"));
+        assert_eq!(state.selected_agent_index(), None);
+        assert!(state.selected_agent().is_none());
+
+        state.cursor = TreeCursor::Agent(0);
+        assert_eq!(state.selected_session(), Some("dev"));
+        assert_eq!(state.selected_agent_index(), Some(0));
+        assert!(state.selected_agent().is_some());
+    }
+
+    #[test]
+    fn test_collapsed_navigation() {
+        let mut state = AppState::new();
+        state
+            .agents
+            .root_agents
+            .push(make_agent("alpha", "alpha:0.0", 0, 0));
+        state
+            .agents
+            .root_agents
+            .push(make_agent("beta", "beta:0.0", 0, 0));
+
+        // Collapse alpha session
+        state.collapsed_sessions.insert("alpha".to_string());
+
+        // Nav items should be: Session(alpha), Session(beta), Agent(1)
+        let nav = state.build_nav_items();
+        assert_eq!(nav.len(), 3);
+        assert_eq!(nav[0], NavItem::Session("alpha".to_string()));
+        assert_eq!(nav[1], NavItem::Session("beta".to_string()));
+        assert_eq!(nav[2], NavItem::Agent(1));
     }
 }

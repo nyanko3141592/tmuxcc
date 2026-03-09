@@ -98,7 +98,7 @@ impl PanePreviewWidget {
                 .title(format!(" {} ", agent.agent_type.short_name()))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Gray));
+                .border_style(Style::default().fg(if state.is_preview_focused() { Color::Cyan } else { Color::Gray }));
 
             let inner_area = outer_block.inner(area);
             frame.render_widget(outer_block, area);
@@ -206,7 +206,7 @@ impl PanePreviewWidget {
                 .title(" Summary ")
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Gray));
+                .border_style(Style::default().fg(if state.is_preview_focused() { Color::Cyan } else { Color::Gray }));
 
             let paragraph = Paragraph::new(vec![Line::from(vec![Span::styled(
                 "No agent selected",
