@@ -48,10 +48,7 @@ impl TmuxClient {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let panes: Vec<PaneInfo> = stdout
-            .lines()
-            .filter_map(|line| PaneInfo::parse(line))
-            .collect();
+        let panes: Vec<PaneInfo> = stdout.lines().filter_map(PaneInfo::parse).collect();
 
         Ok(panes)
     }
@@ -196,11 +193,7 @@ impl TmuxClient {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "tmux new-window failed for {}: {}",
-                session,
-                stderr
-            );
+            anyhow::bail!("tmux new-window failed for {}: {}", session, stderr);
         }
 
         Ok(())
@@ -215,11 +208,7 @@ impl TmuxClient {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "tmux rename-window failed for {}: {}",
-                target,
-                stderr
-            );
+            anyhow::bail!("tmux rename-window failed for {}: {}", target, stderr);
         }
 
         Ok(())

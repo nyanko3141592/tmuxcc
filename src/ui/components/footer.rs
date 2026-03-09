@@ -92,10 +92,7 @@ impl FooterWidget {
                     format!(" [{}]: ", target),
                     Style::default().fg(Color::White),
                 ),
-                Span::styled(
-                    state.get_input(),
-                    Style::default().fg(Color::Yellow),
-                ),
+                Span::styled(state.get_input(), Style::default().fg(Color::Yellow)),
                 Span::styled(" | ", sep),
                 Span::styled("Enter", key),
                 Span::styled(":Confirm ", txt),
@@ -154,7 +151,10 @@ impl FooterWidget {
                     format!(" Kill [{}]? press ", target),
                     Style::default().fg(Color::Yellow),
                 ),
-                Span::styled("d", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "d",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" again to confirm", Style::default().fg(Color::Yellow)),
             ]);
             let paragraph = Paragraph::new(line);
@@ -230,6 +230,9 @@ fn truncate_error(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}\u{2026}", s.chars().take(max_len - 1).collect::<String>())
+        format!(
+            "{}\u{2026}",
+            s.chars().take(max_len - 1).collect::<String>()
+        )
     }
 }

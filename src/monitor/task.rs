@@ -259,9 +259,7 @@ fn sort_agents_by_activity(agents: &mut Vec<MonitoredAgent>) {
         .collect();
 
     // Sort by priority, then by most recent activity (most recent first for same priority)
-    session_order.sort_by(|a, b| {
-        a.1.cmp(&b.1).then_with(|| b.2.cmp(&a.2))
-    });
+    session_order.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| b.2.cmp(&a.2)));
 
     // Rebuild agents in sorted order
     for (session, _, _) in session_order {

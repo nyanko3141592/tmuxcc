@@ -593,8 +593,10 @@ fn map_key_to_action(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -
         return match code {
             KeyCode::Char('j') | KeyCode::Down => Action::ScrollDown,
             KeyCode::Char('k') | KeyCode::Up => Action::ScrollUp,
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => Action::HideHelp,
-            _ => Action::None,  // ignore other keys while help is open
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
+                Action::HideHelp
+            }
+            _ => Action::None, // ignore other keys while help is open
         };
     }
 

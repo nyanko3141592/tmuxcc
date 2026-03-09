@@ -198,19 +198,13 @@ impl AppState {
         // Group agents by session
         let mut agent_sessions: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
         for (idx, agent) in self.agents.root_agents.iter().enumerate() {
-            agent_sessions
-                .entry(&agent.session)
-                .or_default()
-                .push(idx);
+            agent_sessions.entry(&agent.session).or_default().push(idx);
         }
 
         // Group non-agent panes by session
         let mut nap_sessions: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
         for (idx, nap) in self.agents.non_agent_panes.iter().enumerate() {
-            nap_sessions
-                .entry(&nap.session)
-                .or_default()
-                .push(idx);
+            nap_sessions.entry(&nap.session).or_default().push(idx);
         }
 
         // Collect all session names (from agents, non-agent panes, and all_sessions)
@@ -226,7 +220,7 @@ impl AppState {
         }
 
         let mut items = Vec::new();
-        for (session, _) in &all_session_names {
+        for session in all_session_names.keys() {
             items.push(NavItem::Session(session.to_string()));
             if !self.collapsed_sessions.contains(*session) {
                 if let Some(agent_indices) = agent_sessions.get(session) {
@@ -282,9 +276,11 @@ impl AppState {
     pub fn selected_pane_target(&self) -> Option<String> {
         match &self.cursor {
             TreeCursor::Agent(idx) => self.agents.get_agent(*idx).map(|a| a.target.clone()),
-            TreeCursor::NonAgentPane(idx) => {
-                self.agents.non_agent_panes.get(*idx).map(|p| p.target.clone())
-            }
+            TreeCursor::NonAgentPane(idx) => self
+                .agents
+                .non_agent_panes
+                .get(*idx)
+                .map(|p| p.target.clone()),
             TreeCursor::Session(_) => None,
         }
     }
@@ -292,12 +288,12 @@ impl AppState {
     /// Returns the window name of whatever pane the cursor is on
     pub fn selected_pane_window_name(&self) -> Option<String> {
         match &self.cursor {
-            TreeCursor::Agent(idx) => {
-                self.agents.get_agent(*idx).map(|a| a.window_name.clone())
-            }
-            TreeCursor::NonAgentPane(idx) => {
-                self.agents.non_agent_panes.get(*idx).map(|p| p.window_name.clone())
-            }
+            TreeCursor::Agent(idx) => self.agents.get_agent(*idx).map(|a| a.window_name.clone()),
+            TreeCursor::NonAgentPane(idx) => self
+                .agents
+                .non_agent_panes
+                .get(*idx)
+                .map(|p| p.window_name.clone()),
             TreeCursor::Session(_) => None,
         }
     }
@@ -306,10 +302,7 @@ impl AppState {
     pub fn selected_session(&self) -> Option<&str> {
         match &self.cursor {
             TreeCursor::Session(s) => Some(s),
-            TreeCursor::Agent(idx) => self
-                .agents
-                .get_agent(*idx)
-                .map(|a| a.session.as_str()),
+            TreeCursor::Agent(idx) => self.agents.get_agent(*idx).map(|a| a.session.as_str()),
             TreeCursor::NonAgentPane(idx) => self
                 .agents
                 .non_agent_panes
@@ -481,12 +474,14 @@ impl AppState {
 
     /// Find the current cursor's position in the nav items list
     fn find_nav_position(&self, nav_items: &[NavItem]) -> Option<usize> {
-        nav_items.iter().position(|item| match (&self.cursor, item) {
-            (TreeCursor::Session(s1), NavItem::Session(s2)) => s1 == s2,
-            (TreeCursor::Agent(i1), NavItem::Agent(i2)) => i1 == i2,
-            (TreeCursor::NonAgentPane(i1), NavItem::NonAgentPane(i2)) => i1 == i2,
-            _ => false,
-        })
+        nav_items
+            .iter()
+            .position(|item| match (&self.cursor, item) {
+                (TreeCursor::Session(s1), NavItem::Session(s2)) => s1 == s2,
+                (TreeCursor::Agent(i1), NavItem::Agent(i2)) => i1 == i2,
+                (TreeCursor::NonAgentPane(i1), NavItem::NonAgentPane(i2)) => i1 == i2,
+                _ => false,
+            })
     }
 
     /// Set cursor from a NavItem
@@ -607,8 +602,7 @@ impl AppState {
                     if self.agents.root_agents.is_empty() {
                         self.cursor = TreeCursor::Agent(0);
                     } else {
-                        self.cursor =
-                            TreeCursor::Agent(self.agents.root_agents.len() - 1);
+                        self.cursor = TreeCursor::Agent(self.agents.root_agents.len() - 1);
                     }
                 }
             }

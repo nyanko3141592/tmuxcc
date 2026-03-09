@@ -359,12 +359,12 @@ impl ClaudeCodeParser {
             // Active spinner: starts with a dingbat/dot and has a gerund with ellipsis
             if trimmed.len() > 2 {
                 let first_char = trimmed.chars().next().unwrap_or(' ');
-                let is_spinner_prefix = matches!(first_char,
-                    '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿'
-                );
+                let is_spinner_prefix =
+                    matches!(first_char, '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿');
                 if is_spinner_prefix
                     && (trimmed.contains("…") || trimmed.contains("..."))
-                    && !trimmed.contains(" for ") // exclude completed: "✻ Brewed for 5m"
+                    && !trimmed.contains(" for ")
+                // exclude completed: "✻ Brewed for 5m"
                 {
                     return true;
                 }
@@ -394,10 +394,9 @@ impl ClaudeCodeParser {
             // Active spinner line — extract the verb
             if trimmed.len() > 2 {
                 let first_char = trimmed.chars().next().unwrap_or(' ');
-                let is_spinner = matches!(first_char,
-                    '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿'
-                );
-                if is_spinner && (trimmed.contains("…") || trimmed.contains("..."))
+                let is_spinner = matches!(first_char, '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿');
+                if is_spinner
+                    && (trimmed.contains("…") || trimmed.contains("..."))
                     && !trimmed.contains(" for ")
                 {
                     // Return the spinner line, trimmed to reasonable length
@@ -477,7 +476,9 @@ impl AgentParser for ClaudeCodeParser {
         let tail = safe_tail(content, 2000);
         if self.detect_active_work(tail) {
             return AgentStatus::Processing {
-                activity: self.extract_activity(tail).unwrap_or_else(|| "Working...".to_string()),
+                activity: self
+                    .extract_activity(tail)
+                    .unwrap_or_else(|| "Working...".to_string()),
             };
         }
 
