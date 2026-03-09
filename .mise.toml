@@ -1,0 +1,40 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tools]
+rust = "latest"
+
+[tasks.build]
+description = "Build release binary"
+run = "cargo build --release"
+
+[tasks.install]
+description = "Build and install to ~/.cargo/bin"
+run = """
+cargo build --release
+cp target/release/tmuxcc ~/.cargo/bin/tmuxcc
+echo "Installed tmuxcc to ~/.cargo/bin/tmuxcc"
+"""
+
+[tasks.dev]
+description = "Build debug binary (faster compile)"
+run = "cargo build"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --lib"
+
+[tasks.check]
+description = "Build + test + clippy"
+run = """
+cargo build --release
+cargo test --lib
+cargo clippy -- -W warnings
+"""
+
+[tasks.run]
+description = "Build and run the TUI"
+run = "cargo run --release"
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "cargo clean"
