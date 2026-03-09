@@ -29,16 +29,15 @@ impl TmuxClient {
             .unwrap_or(false)
     }
 
-    /// Lists all panes across all attached sessions
+    /// Lists all panes across all sessions (attached and detached)
     pub fn list_panes(&self) -> Result<Vec<PaneInfo>> {
         // Use tab separator to handle spaces in titles/paths
-        // Include session_attached to filter out detached sessions
         let output = Command::new("tmux")
             .args([
                 "list-panes",
                 "-a",
                 "-F",
-                "#{session_attached}\t#{session_name}:#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{pane_current_path}",
+                "#{session_name}:#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{pane_current_path}",
             ])
             .output()
             .context("Failed to execute tmux list-panes")?;
@@ -51,17 +50,7 @@ impl TmuxClient {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let panes: Vec<PaneInfo> = stdout
             .lines()
-            .filter_map(|line| {
-                // First field is session_attached (0 or 1)
-                let (attached, rest) = line.split_once('\t')?;
-
-                // Only include panes from attached sessions
-                if attached == "1" {
-                    PaneInfo::parse(rest)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|line| PaneInfo::parse(line))
             .collect();
 
         Ok(panes)
@@ -140,11 +129,116 @@ impl TmuxClient {
         Ok(())
     }
 
-    /// Focuses on a pane by selecting its window and pane
+    /// Switches the current client to a different session
+    pub fn switch_client(&self, target: &str) -> Result<()> {
+        // Extract session name from target (e.g. "discord:2.1" -> "discord")
+        let session = target.split(':').next().unwrap_or(target);
+
+        let output = Command::new("tmux")
+            .args(["switch-client", "-t", session])
+            .output()
+            .context("Failed to execute tmux switch-client")?;
+
+        if !output.status.success() {
+            // switch-client fails if not running inside tmux — fall back silently
+            tracing::debug!(
+                "switch-client to {} failed (may not be inside tmux): {}",
+                session,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Focuses on a pane by switching to its session, selecting window and pane
     pub fn focus_pane(&self, target: &str) -> Result<()> {
+        self.switch_client(target)?;
         self.select_window(target)?;
         self.select_pane(target)?;
         Ok(())
+    }
+
+    /// Kills a specific pane
+    pub fn kill_pane(&self, target: &str) -> Result<()> {
+        let output = Command::new("tmux")
+            .args(["kill-pane", "-t", target])
+            .output()
+            .context("Failed to execute tmux kill-pane")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("tmux kill-pane failed for {}: {}", target, stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Creates a new window in a session with a command
+    pub fn new_window(
+        &self,
+        session: &str,
+        name: &str,
+        command: &str,
+        cwd: Option<&str>,
+    ) -> Result<()> {
+        let mut args = vec!["new-window", "-t", session, "-n", name];
+        if let Some(dir) = cwd {
+            args.push("-c");
+            args.push(dir);
+        }
+        args.push(command);
+
+        let output = Command::new("tmux")
+            .args(&args)
+            .output()
+            .context("Failed to execute tmux new-window")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "tmux new-window failed for {}: {}",
+                session,
+                stderr
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Renames a tmux window
+    pub fn rename_window(&self, target: &str, name: &str) -> Result<()> {
+        let output = Command::new("tmux")
+            .args(["rename-window", "-t", target, name])
+            .output()
+            .context("Failed to execute tmux rename-window")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "tmux rename-window failed for {}: {}",
+                target,
+                stderr
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Lists all tmux session names
+    pub fn list_sessions(&self) -> Result<Vec<String>> {
+        let output = Command::new("tmux")
+            .args(["list-sessions", "-F", "#{session_name}"])
+            .output()
+            .context("Failed to execute tmux list-sessions")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("tmux list-sessions failed: {}", stderr);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout.lines().map(|s| s.to_string()).collect())
     }
 }
 

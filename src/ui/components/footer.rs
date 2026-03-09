@@ -37,7 +37,7 @@ impl FooterWidget {
             (" Y ", FooterButton::Approve),
             (" N ", FooterButton::Reject),
             (" A ", FooterButton::ApproveAll),
-            (" ☐ ", FooterButton::ToggleSelect),
+            (" \u{2610} ", FooterButton::ToggleSelect),
             (" F ", FooterButton::Focus),
             (" ? ", FooterButton::Help),
             (" Q ", FooterButton::Quit),
@@ -73,14 +73,100 @@ impl FooterWidget {
     }
 
     pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
+        let sep = Style::default().fg(Color::DarkGray);
+        let key = Style::default().fg(Color::Yellow);
+        let txt = Style::default().fg(Color::White);
+
+        // Rename mode footer
+        if let Some(ref target) = state.rename_mode {
+            let line = Line::from(vec![
+                Span::styled(
+                    " RENAME ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("\u{2502}", sep),
+                Span::styled(
+                    format!(" [{}]: ", target),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(
+                    state.get_input(),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(" | ", sep),
+                Span::styled("Enter", key),
+                Span::styled(":Confirm ", txt),
+                Span::styled("ESC", key),
+                Span::styled(":Cancel", txt),
+            ]);
+            let paragraph = Paragraph::new(line);
+            frame.render_widget(paragraph, area);
+            return;
+        }
+
+        // Spawn mode footer
+        if let Some(ref session) = state.spawn_mode {
+            let line = Line::from(vec![
+                Span::styled(
+                    " SPAWN ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("\u{2502}", sep),
+                Span::styled(
+                    format!(" in [{}]: ", session),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled("[c]", key),
+                Span::styled("laude ", txt),
+                Span::styled("[C]", key),
+                Span::styled("laude-safe ", txt),
+                Span::styled("[x]", key),
+                Span::styled("codex ", txt),
+                Span::styled("[g]", key),
+                Span::styled("emini ", txt),
+                Span::styled("[o]", key),
+                Span::styled("pencode ", txt),
+                Span::styled("[ESC]", key),
+                Span::styled("cancel", txt),
+            ]);
+            let paragraph = Paragraph::new(line);
+            frame.render_widget(paragraph, area);
+            return;
+        }
+
+        // Pending kill footer
+        if let Some((ref target, _)) = state.pending_kill {
+            let line = Line::from(vec![
+                Span::styled(
+                    " KILL ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" Kill [{}]? press ", target),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled("d", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(" again to confirm", Style::default().fg(Color::Yellow)),
+            ]);
+            let paragraph = Paragraph::new(line);
+            frame.render_widget(paragraph, area);
+            return;
+        }
+
         let btn_y = Style::default().fg(Color::Black).bg(Color::Green);
         let btn_n = Style::default().fg(Color::Black).bg(Color::Red);
         let btn_a = Style::default().fg(Color::Black).bg(Color::Yellow);
         let btn_sel = Style::default().fg(Color::Black).bg(Color::Cyan);
         let btn_def = Style::default().fg(Color::Black).bg(Color::Gray);
-        let sep = Style::default().fg(Color::DarkGray);
-        let key = Style::default().fg(Color::Yellow);
-        let txt = Style::default().fg(Color::White);
 
         let line: Line = if state.is_input_focused() {
             Line::from(vec![
@@ -90,14 +176,14 @@ impl FooterWidget {
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("│", sep),
+                Span::styled("\u{2502}", sep),
                 Span::styled(" Enter", key),
                 Span::styled(":Send ", txt),
                 Span::styled("S-Enter", key),
                 Span::styled(":NL ", txt),
                 Span::styled("Esc", key),
                 Span::styled(":Back ", txt),
-                Span::styled("←→", key),
+                Span::styled("\u{2190}\u{2192}", key),
                 Span::styled(":Move", txt),
             ])
         } else {
@@ -108,7 +194,7 @@ impl FooterWidget {
                 Span::styled(" ", sep),
                 Span::styled(" A ", btn_a),
                 Span::styled(" ", sep),
-                Span::styled(" ☐ ", btn_sel),
+                Span::styled(" \u{2610} ", btn_sel),
                 Span::styled(" ", sep),
                 Span::styled(" F ", btn_def),
                 Span::styled(" ", sep),
@@ -125,9 +211,9 @@ impl FooterWidget {
             }
 
             if let Some(error) = &state.last_error {
-                spans.push(Span::styled(" │ ", sep));
+                spans.push(Span::styled(" \u{2502} ", sep));
                 spans.push(Span::styled(
-                    format!("✗ {}", truncate_error(error, 30)),
+                    format!("\u{2717} {}", truncate_error(error, 30)),
                     Style::default().fg(Color::Red),
                 ));
             }
@@ -144,6 +230,6 @@ fn truncate_error(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}…", s.chars().take(max_len - 1).collect::<String>())
+        format!("{}\u{2026}", s.chars().take(max_len - 1).collect::<String>())
     }
 }

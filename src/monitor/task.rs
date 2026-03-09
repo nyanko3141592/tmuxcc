@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::agents::{AgentStatus, MonitoredAgent};
-use crate::app::AgentTree;
+use crate::app::{AgentTree, NonAgentPane};
 use crate::parsers::ParserRegistry;
 use crate::tmux::{refresh_process_cache, TmuxClient};
 
@@ -17,6 +17,7 @@ const STATUS_HYSTERESIS_MS: u64 = 2000;
 #[derive(Debug, Clone)]
 pub struct MonitorUpdate {
     pub agents: AgentTree,
+    pub all_sessions: Vec<String>,
 }
 
 /// Background task that monitors tmux panes for AI agents
@@ -50,8 +51,11 @@ impl MonitorTask {
     pub async fn run(mut self) {
         loop {
             match self.poll_agents().await {
-                Ok(tree) => {
-                    let update = MonitorUpdate { agents: tree };
+                Ok((tree, all_sessions)) => {
+                    let update = MonitorUpdate {
+                        agents: tree,
+                        all_sessions,
+                    };
                     if self.tx.send(update).await.is_err() {
                         debug!("Monitor channel closed, stopping");
                         break;
@@ -66,10 +70,11 @@ impl MonitorTask {
         }
     }
 
-    async fn poll_agents(&mut self) -> anyhow::Result<AgentTree> {
+    async fn poll_agents(&mut self) -> anyhow::Result<(AgentTree, Vec<String>)> {
         // Refresh process cache once per poll cycle (much faster than per-pane)
         refresh_process_cache();
 
+        let all_sessions = self.tmux_client.list_sessions().unwrap_or_default();
         let panes = self.tmux_client.list_panes()?;
         let mut tree = AgentTree::new();
 
@@ -171,12 +176,97 @@ impl MonitorTask {
                 agent.touch(); // Update last_updated
 
                 tree.root_agents.push(agent);
+            } else {
+                // Non-agent pane
+                tree.non_agent_panes.push(NonAgentPane {
+                    target: pane.target(),
+                    session: pane.session.clone(),
+                    window: pane.window,
+                    window_name: pane.window_name.clone(),
+                    pane: pane.pane,
+                    command: pane.command.clone(),
+                    path: pane.path.clone(),
+                });
             }
         }
 
-        // Sort agents by target for consistent ordering
-        tree.root_agents.sort_by(|a, b| a.target.cmp(&b.target));
+        // Sort agents: first by session priority (activity), then by target within each session
+        sort_agents_by_activity(&mut tree.root_agents);
 
-        Ok(tree)
+        // Sort non-agent panes by session then target
+        tree.non_agent_panes
+            .sort_by(|a, b| a.session.cmp(&b.session).then(a.target.cmp(&b.target)));
+
+        Ok((tree, all_sessions))
+    }
+}
+
+/// Compute session priority: lower number = higher priority (sorted first)
+fn session_priority(agents: &[&MonitoredAgent]) -> u8 {
+    let mut has_awaiting = false;
+    let mut has_processing = false;
+    let mut has_error = false;
+
+    for agent in agents {
+        match &agent.status {
+            AgentStatus::AwaitingApproval { .. } => has_awaiting = true,
+            AgentStatus::Processing { .. } => has_processing = true,
+            AgentStatus::Error { .. } => has_error = true,
+            _ => {}
+        }
+    }
+
+    if has_awaiting {
+        0
+    } else if has_processing {
+        1
+    } else if has_error {
+        2
+    } else {
+        3
+    }
+}
+
+/// Sort agents by session activity priority, then by target within each session
+fn sort_agents_by_activity(agents: &mut Vec<MonitoredAgent>) {
+    // Group agents by session
+    let mut session_agents: BTreeMap<String, Vec<MonitoredAgent>> = BTreeMap::new();
+    for agent in agents.drain(..) {
+        session_agents
+            .entry(agent.session.clone())
+            .or_default()
+            .push(agent);
+    }
+
+    // Sort agents within each session by target (window/pane order)
+    for group in session_agents.values_mut() {
+        group.sort_by(|a, b| a.target.cmp(&b.target));
+    }
+
+    // Compute session priority and sort sessions
+    let mut session_order: Vec<(String, u8, Instant)> = session_agents
+        .iter()
+        .map(|(session, group)| {
+            let refs: Vec<&MonitoredAgent> = group.iter().collect();
+            let priority = session_priority(&refs);
+            let most_recent = group
+                .iter()
+                .map(|a| a.last_updated)
+                .max()
+                .unwrap_or_else(Instant::now);
+            (session.clone(), priority, most_recent)
+        })
+        .collect();
+
+    // Sort by priority, then by most recent activity (most recent first for same priority)
+    session_order.sort_by(|a, b| {
+        a.1.cmp(&b.1).then_with(|| b.2.cmp(&a.2))
+    });
+
+    // Rebuild agents in sorted order
+    for (session, _, _) in session_order {
+        if let Some(group) = session_agents.remove(&session) {
+            agents.extend(group);
+        }
     }
 }

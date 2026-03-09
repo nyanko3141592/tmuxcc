@@ -340,6 +340,76 @@ impl ClaudeCodeParser {
         }
     }
 
+    /// Detect active work from pane content — catches background tasks, active spinners,
+    /// and other indicators that the agent isn't truly idle.
+    fn detect_active_work(&self, content: &str) -> bool {
+        let lines: Vec<&str> = content.lines().collect();
+        let last_n = &lines[lines.len().saturating_sub(15)..];
+        let recent = last_n.join("\n");
+
+        // Background tasks: "N background task(s) still running"
+        if recent.contains("background task") && recent.contains("running") {
+            return true;
+        }
+
+        // Active spinner in content (gerund + ellipsis): "✻ Leavening…", "· Forming…"
+        // These Unicode ranges cover CC's rotating dingbat spinners
+        for line in last_n.iter().rev().take(8) {
+            let trimmed = line.trim();
+            // Active spinner: starts with a dingbat/dot and has a gerund with ellipsis
+            if trimmed.len() > 2 {
+                let first_char = trimmed.chars().next().unwrap_or(' ');
+                let is_spinner_prefix = matches!(first_char,
+                    '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿'
+                );
+                if is_spinner_prefix
+                    && (trimmed.contains("…") || trimmed.contains("..."))
+                    && !trimmed.contains(" for ") // exclude completed: "✻ Brewed for 5m"
+                {
+                    return true;
+                }
+            }
+        }
+
+        // "Running N Explore agents" or similar
+        if recent.contains("Running") && recent.contains("agent") {
+            return true;
+        }
+
+        false
+    }
+
+    /// Extract a human-readable activity description from content
+    fn extract_activity(&self, content: &str) -> Option<String> {
+        let lines: Vec<&str> = content.lines().collect();
+
+        for line in lines.iter().rev().take(10) {
+            let trimmed = line.trim();
+
+            // Background task indicator
+            if trimmed.contains("background task") && trimmed.contains("running") {
+                return Some(trimmed.to_string());
+            }
+
+            // Active spinner line — extract the verb
+            if trimmed.len() > 2 {
+                let first_char = trimmed.chars().next().unwrap_or(' ');
+                let is_spinner = matches!(first_char,
+                    '\u{2720}'..='\u{274F}' | '⏺' | '·' | '⎿'
+                );
+                if is_spinner && (trimmed.contains("…") || trimmed.contains("..."))
+                    && !trimmed.contains(" for ")
+                {
+                    // Return the spinner line, trimmed to reasonable length
+                    let desc = trimmed.chars().take(80).collect::<String>();
+                    return Some(desc);
+                }
+            }
+        }
+
+        None
+    }
+
     fn extract_file_path(&self, content: &str) -> Option<String> {
         let path_pattern =
             Regex::new(r"(?m)(?:file|path)[:\s]+([^\s\n]+)|([./][\w/.-]+\.\w+)").ok()?;
@@ -387,8 +457,8 @@ impl AgentParser for ClaudeCodeParser {
     }
 
     fn parse_status(&self, content: &str) -> AgentStatus {
-        // Title-based spinner detection in monitor/task.rs handles Processing state.
-        // Here we only check for approval prompts, otherwise return Idle.
+        // Title-based spinner detection in monitor/task.rs also handles Processing state.
+        // Here we check approval prompts first, then content-based activity indicators.
 
         // Check for approval prompts (highest priority)
         if let Some((approval_type, details)) = self.detect_approval(content) {
@@ -398,12 +468,20 @@ impl AgentParser for ClaudeCodeParser {
             };
         }
 
-        // Default to Idle - title spinner detection will override to Processing if needed
         if content.trim().is_empty() {
-            AgentStatus::Unknown
-        } else {
-            AgentStatus::Idle
+            return AgentStatus::Unknown;
         }
+
+        // Check for active work indicators in the pane content.
+        // These catch cases where the title spinner has stopped but work is ongoing.
+        let tail = safe_tail(content, 2000);
+        if self.detect_active_work(tail) {
+            return AgentStatus::Processing {
+                activity: self.extract_activity(tail).unwrap_or_else(|| "Working...".to_string()),
+            };
+        }
+
+        AgentStatus::Idle
     }
 
     fn parse_subagents(&self, content: &str) -> Vec<Subagent> {

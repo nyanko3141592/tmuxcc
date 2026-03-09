@@ -35,6 +35,10 @@ pub enum Action {
     FocusInput,
     /// Focus on sidebar
     FocusSidebar,
+    /// Focus on preview panel
+    FocusPreview,
+    /// Cycle focus to next panel
+    CycleFocus,
     /// Send input to selected agent
     SendInput,
     /// Clear input buffer
@@ -65,6 +69,28 @@ pub enum Action {
     ScrollUp,
     /// Scroll down in sidebar
     ScrollDown,
+    /// Toggle collapse of current session
+    ToggleCollapse,
+    /// Collapse all sessions
+    CollapseAll,
+    /// Expand all sessions
+    ExpandAll,
+    /// Kill pane (first press of dd)
+    KillPanePending,
+    /// Kill pane (confirmed)
+    KillPane,
+    /// Start spawn mode
+    SpawnStart,
+    /// Spawn a specific agent type
+    SpawnAgent(String),
+    /// Cancel spawn mode
+    SpawnCancel,
+    /// Start rename mode for the selected pane's window
+    RenameStart,
+    /// Execute the rename with the given name
+    RenameExecute(String),
+    /// Cancel rename mode
+    RenameCancel,
     /// No action (used for unbound keys)
     None,
 }
@@ -90,6 +116,8 @@ impl Action {
             Action::HideHelp => "Hide help",
             Action::FocusInput => "Focus input panel",
             Action::FocusSidebar => "Focus sidebar",
+            Action::FocusPreview => "Focus preview panel",
+            Action::CycleFocus => "Cycle focus between panels",
             Action::SendInput => "Send input",
             Action::ClearInput => "Clear input",
             Action::InputChar(_) => "Type character",
@@ -105,6 +133,17 @@ impl Action {
             Action::SelectAgent(_) => "Select agent",
             Action::ScrollUp => "Scroll up",
             Action::ScrollDown => "Scroll down",
+            Action::ToggleCollapse => "Toggle collapse session",
+            Action::CollapseAll => "Collapse all sessions",
+            Action::ExpandAll => "Expand all sessions",
+            Action::KillPanePending => "Kill pane (press d again)",
+            Action::KillPane => "Kill pane",
+            Action::SpawnStart => "Spawn new agent",
+            Action::SpawnAgent(_) => "Spawn agent",
+            Action::SpawnCancel => "Cancel spawn",
+            Action::RenameStart => "Rename window",
+            Action::RenameExecute(_) => "Execute rename",
+            Action::RenameCancel => "Cancel rename",
             Action::None => "",
         }
     }
