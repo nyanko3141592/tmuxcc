@@ -7,7 +7,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::AppState;
+use crate::app::{AppState, FlashTarget, generate_flash_labels};
 
 /// Input widget for text entry at the bottom of the right column
 pub struct InputWidget;
@@ -24,7 +24,24 @@ impl InputWidget {
             .map(|a| a.abbreviated_path())
             .unwrap_or_else(|| "None".to_string());
 
-        let title = format!(" Input → {} ", target_name);
+        // Check for flash label on input area
+        let flash_label = if state.flash_mode.is_some() {
+            let targets = state.build_flash_targets();
+            let labels = generate_flash_labels(targets.len());
+            targets
+                .iter()
+                .zip(labels.iter())
+                .find(|(t, _)| matches!(t, FlashTarget::InputArea))
+                .map(|(_, l)| l.clone())
+        } else {
+            None
+        };
+
+        let title = if let Some(ref label) = flash_label {
+            format!(" [{}] Input → {} ", label, target_name)
+        } else {
+            format!(" Input → {} ", target_name)
+        };
 
         let border_color = if is_focused {
             Color::Green
@@ -32,11 +49,29 @@ impl InputWidget {
             Color::DarkGray
         };
 
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color));
+        let block = if let Some(ref label) = flash_label {
+            Block::default()
+                .title(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(
+                        label.as_str(),
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .bg(Color::Rgb(50, 0, 50))
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
+                    Span::raw(format!(" Input → {} ", target_name)),
+                ]))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(border_color))
+        } else {
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(border_color))
+        };
 
         // Build content with cursor (only show cursor when focused)
         let lines: Vec<Line> = Self::build_lines_with_cursor(buffer, cursor_pos, is_focused);

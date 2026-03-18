@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::AppState;
+use crate::app::{AppState, FlashMode};
 
 /// Button definitions for footer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +76,42 @@ impl FooterWidget {
         let sep = Style::default().fg(Color::DarkGray);
         let key = Style::default().fg(Color::Yellow);
         let txt = Style::default().fg(Color::White);
+
+        // Flash mode footer
+        if let Some(ref mode) = state.flash_mode {
+            let (mode_name, mode_bg) = match mode {
+                FlashMode::Focus => ("FLASH-FOCUS", Color::Green),
+                FlashMode::Go => ("FLASH-GO", Color::Yellow),
+            };
+            let mut spans = vec![
+                Span::styled(
+                    format!(" {} ", mode_name),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(mode_bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("\u{2502}", sep),
+            ];
+            if let Some(prefix) = state.flash_prefix {
+                spans.push(Span::styled(
+                    format!(" {}", prefix),
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled("_ ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled("press second key", txt));
+            } else {
+                spans.push(Span::styled(" Press hint label to jump ", txt));
+            }
+            spans.push(Span::styled(" | ", sep));
+            spans.push(Span::styled("ESC", key));
+            spans.push(Span::styled(":Cancel", txt));
+            let paragraph = Paragraph::new(Line::from(spans));
+            frame.render_widget(paragraph, area);
+            return;
+        }
 
         // Rename mode footer
         if let Some(ref target) = state.rename_mode {

@@ -91,6 +91,14 @@ pub enum Action {
     RenameExecute(String),
     /// Cancel rename mode
     RenameCancel,
+    /// Start flash-focus mode (g)
+    FlashFocusStart,
+    /// Start flash-go mode (G)
+    FlashGoStart,
+    /// Character input during flash mode
+    FlashInput(char),
+    /// Cancel flash mode
+    FlashCancel,
     /// No action (used for unbound keys)
     None,
 }
@@ -144,6 +152,10 @@ impl Action {
             Action::RenameStart => "Rename window",
             Action::RenameExecute(_) => "Execute rename",
             Action::RenameCancel => "Cancel rename",
+            Action::FlashFocusStart => "Flash-focus navigation",
+            Action::FlashGoStart => "Flash-go navigation",
+            Action::FlashInput(_) => "Flash label input",
+            Action::FlashCancel => "Cancel flash",
             Action::None => "",
         }
     }

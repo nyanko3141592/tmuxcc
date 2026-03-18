@@ -52,6 +52,46 @@ pub enum NavItem {
     NonAgentPane(usize),
 }
 
+/// Flash navigation mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlashMode {
+    /// Flash-focus: jump cursor to target
+    Focus,
+    /// Flash-go: jump cursor + attach tmux
+    Go,
+}
+
+/// Target for flash navigation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FlashTarget {
+    /// A navigable tree item
+    Nav(NavItem),
+    /// The input area
+    InputArea,
+}
+
+/// Home-row priority keys for flash labels
+const FLASH_KEYS: &[char] = &[
+    'a', 's', 'd', 'f', 'j', 'k', 'l', 'h', 'e', 'w', 'r', 'u', 'i', 'o',
+];
+
+/// Generate flash labels for a given number of targets
+pub fn generate_flash_labels(count: usize) -> Vec<String> {
+    let mut labels = Vec::with_capacity(count);
+    for &c in FLASH_KEYS.iter().take(count.min(FLASH_KEYS.len())) {
+        labels.push(c.to_string());
+    }
+    if count > FLASH_KEYS.len() {
+        for &c in FLASH_KEYS.iter() {
+            if labels.len() >= count {
+                break;
+            }
+            labels.push(format!(";{}", c));
+        }
+    }
+    labels
+}
+
 /// Tree structure containing all monitored agents
 #[derive(Debug, Clone, Default)]
 pub struct AgentTree {
@@ -161,6 +201,10 @@ pub struct AppState {
     pub spawn_mode: Option<String>,
     /// Rename mode: Some(target) when active
     pub rename_mode: Option<String>,
+    /// Flash navigation mode
+    pub flash_mode: Option<FlashMode>,
+    /// First character of a two-char flash label (waiting for second char)
+    pub flash_prefix: Option<char>,
 }
 
 impl AppState {
@@ -188,6 +232,8 @@ impl AppState {
             pending_kill: None,
             spawn_mode: None,
             rename_mode: None,
+            flash_mode: None,
+            flash_prefix: None,
         }
     }
 
@@ -485,12 +531,31 @@ impl AppState {
     }
 
     /// Set cursor from a NavItem
-    fn set_cursor_from_nav(&mut self, item: &NavItem) {
+    pub fn set_cursor_from_nav(&mut self, item: &NavItem) {
         self.cursor = match item {
             NavItem::Session(s) => TreeCursor::Session(s.clone()),
             NavItem::Agent(idx) => TreeCursor::Agent(*idx),
             NavItem::NonAgentPane(idx) => TreeCursor::NonAgentPane(*idx),
         };
+    }
+
+    /// Build the list of flash targets (nav items + input area)
+    pub fn build_flash_targets(&self) -> Vec<FlashTarget> {
+        let mut targets: Vec<FlashTarget> = self
+            .build_nav_items()
+            .into_iter()
+            .map(FlashTarget::Nav)
+            .collect();
+        targets.push(FlashTarget::InputArea);
+        targets
+    }
+
+    /// Jump cursor to a flash target
+    pub fn jump_to_flash_target(&mut self, target: &FlashTarget) {
+        match target {
+            FlashTarget::Nav(item) => self.set_cursor_from_nav(item),
+            FlashTarget::InputArea => self.focus_input(),
+        }
     }
 
     /// Selects an agent by index

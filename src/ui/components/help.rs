@@ -145,6 +145,27 @@ impl HelpWidget {
                 ),
             ]),
             blank(),
+            Line::from(vec![Span::styled("  Flash navigation", desc_style)]),
+            key(
+                "  g            ",
+                "Flash-focus: show labels, jump cursor to target",
+                key_style,
+                desc_style,
+            ),
+            key(
+                "  G            ",
+                "Flash-go: show labels, jump + attach to tmux target",
+                key_style,
+                desc_style,
+            ),
+            Line::from(vec![
+                Span::styled("                 ", dim_style),
+                Span::styled(
+                    "Press the hint label key to jump. Esc to cancel.",
+                    dim_style,
+                ),
+            ]),
+            blank(),
             Line::from(vec![Span::styled("  Multi-select", desc_style)]),
             key(
                 "  Space        ",
