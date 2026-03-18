@@ -8,11 +8,12 @@ description = "Build release binary"
 run = "cargo build --release"
 
 [tasks.install]
-description = "Build and install to ~/.cargo/bin"
+description = "Build and install to ~/.local/bin"
 run = """
 cargo build --release
-cp target/release/tmuxcc ~/.cargo/bin/tmuxcc
-echo "Installed tmuxcc to ~/.cargo/bin/tmuxcc"
+mkdir -p ~/.local/bin
+cp target/release/tmuxcc ~/.local/bin/tmuxcc
+echo "Installed tmuxcc to ~/.local/bin/tmuxcc"
 """
 
 [tasks.dev]
