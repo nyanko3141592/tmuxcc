@@ -29,16 +29,15 @@ impl TmuxClient {
             .unwrap_or(false)
     }
 
-    /// Lists all panes across all attached sessions
+    /// Lists all panes across all sessions
     pub fn list_panes(&self) -> Result<Vec<PaneInfo>> {
         // Use tab separator to handle spaces in titles/paths
-        // Include session_attached to filter out detached sessions
         let output = Command::new("tmux")
             .args([
                 "list-panes",
                 "-a",
                 "-F",
-                "#{session_attached}\t#{session_name}:#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{pane_current_path}",
+                "#{session_name}:#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{pane_current_path}",
             ])
             .output()
             .context("Failed to execute tmux list-panes")?;
@@ -49,20 +48,7 @@ impl TmuxClient {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let panes: Vec<PaneInfo> = stdout
-            .lines()
-            .filter_map(|line| {
-                // First field is session_attached (0 or 1)
-                let (attached, rest) = line.split_once('\t')?;
-
-                // Only include panes from attached sessions
-                if attached == "1" {
-                    PaneInfo::parse(rest)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let panes: Vec<PaneInfo> = stdout.lines().filter_map(PaneInfo::parse).collect();
 
         Ok(panes)
     }
