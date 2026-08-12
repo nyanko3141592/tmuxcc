@@ -114,6 +114,11 @@ impl MonitorTask {
                             | '⠑'
                             | '⠒'
                             | '⠓'
+                            // Claude Code moon-phase busy icons in pane title
+                            | '◐'
+                            | '◓'
+                            | '◑'
+                            | '◒'
                     )
                 });
 

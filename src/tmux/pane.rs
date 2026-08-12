@@ -171,7 +171,9 @@ impl PaneInfo {
         // Use cached process tree for fast lookups
         let cache = get_process_cache().lock();
         let cmdline = cache.get_cmdline(pid).unwrap_or_default();
-        let child_commands = cache.get_child_commands(pid, 2); // Reduced depth to 2
+        // Depth 6: agents can sit several levels below the pane shell
+        // (e.g. fish -> shell-integration wrapper -> fish -> claude)
+        let child_commands = cache.get_child_commands(pid, 6);
 
         Some(Self {
             session: session.to_string(),
